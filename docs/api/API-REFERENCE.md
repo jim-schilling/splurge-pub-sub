@@ -1,0 +1,959 @@
+# Splurge Pub-Sub - API Reference
+
+Complete reference for the Splurge Pub-Sub framework public API.
+
+## Table of Contents
+
+1. [Core Classes](#core-classes)
+2. [Type Aliases](#type-aliases)
+3. [Exception Classes](#exception-classes)
+4. [Functions](#functions)
+5. [Examples](#examples)
+6. [Related Documentation](#related-documentation)
+
+## Core Classes
+
+### PubSub
+
+Main class for publish-subscribe operations.
+
+#### Constructor
+
+```python
+class PubSub:
+    def __init__(
+        self,
+        error_handler: ErrorHandler | None = None,
+    ) -> None:
+        """Initialize a new PubSub instance.
+
+        Args:
+            error_handler: Optional custom error handler for subscriber callbacks.
+                          Defaults to logging errors.
+
+        Example:
+            >>> def my_error_handler(exc: Exception, topic: str) -> None:
+            ...     print(f"Error on {topic}: {exc}")
+            >>> bus = PubSub(error_handler=my_error_handler)
+        """
+```
+
+#### Methods
+
+##### subscribe
+
+```python
+def subscribe(
+    self,
+    topic: str,
+    callback: Callback,
+) -> SubscriberId:
+    """Subscribe to a topic with a callback function.
+
+    The callback will be invoked for each message published to the topic.
+    Multiple subscribers can subscribe to the same topic.
+
+    Args:
+        topic: Topic identifier (uses dot notation, e.g., "user.created")
+        callback: Callable that accepts a Message and returns None
+
+    Returns:
+        SubscriberId: Unique identifier for this subscription (UUID string)
+
+    Raises:
+        SplurgePubSubValueError: If topic is empty or not a string
+        SplurgePubSubTypeError: If callback is not callable
+        SplurgePubSubRuntimeError: If the bus is shutdown
+
+    Example:
+        >>> bus = PubSub()
+        >>> def handle_event(msg: Message) -> None:
+        ...     print(f"Event: {msg.data}")
+        >>> sub_id = bus.subscribe("order.created", handle_event)
+        >>> isinstance(sub_id, str)
+        True
+    """
+```
+
+**Error Messages**:
+- `"Topic must be a non-empty string, got: <value>"` - Empty or invalid topic
+- `"Callback must be callable, got: <type>"` - Non-callable callback
+- `"Cannot subscribe: PubSub has been shutdown"` - Bus is shutdown
+
+##### publish
+
+```python
+def publish(
+    self,
+    topic: str,
+    data: MessageData | None = None,
+    metadata: Metadata | None = None,
+) -> None:
+    """Publish a message to a topic.
+
+    All subscribers for the topic receive the message via their callbacks.
+    Callbacks are invoked synchronously in the order subscriptions were made.
+
+    If a callback raises an exception, it is passed to the error handler.
+    Exceptions in one callback do not affect other callbacks or the publisher.
+
+    Args:
+        topic: Topic identifier (uses dot notation, e.g., "user.created")
+        data: Message payload (dict[str, Any] with string keys only). Defaults to empty dict.
+        metadata: Optional metadata dictionary for message context. Defaults to empty dict.
+
+    Raises:
+        SplurgePubSubValueError: If topic is empty or not a string
+        SplurgePubSubTypeError: If data is not a dict[str, Any] or contains non-string keys
+
+    Example:
+        >>> bus = PubSub()
+        >>> bus.subscribe("order.created", lambda m: print(m.data))
+        '...'
+        >>> bus.publish("order.created", {"order_id": 42, "total": 99.99})
+        >>> bus.publish("order.created", {"order_id": 42}, metadata={"source": "api"})
+        >>> bus.publish("order.created")  # Empty data and metadata
+    """
+```
+
+**Error Messages**:
+- `"Topic must be a non-empty string, got: <value>"` - Empty or invalid topic
+- `"Message data must be dict[str, Any], got: <type>"` - Payload is not a dict
+- `"Message data keys must be strings, got key <key> of type <type>"` - Dict has non-string keys
+
+##### unsubscribe
+
+```python
+def unsubscribe(
+    self,
+    topic: str,
+    subscriber_id: SubscriberId,
+) -> None:
+    """Unsubscribe a subscriber from a topic.
+
+    Args:
+        topic: Topic identifier
+        subscriber_id: Subscriber ID from subscribe() call
+
+    Raises:
+        SplurgePubSubValueError: If topic is empty or not a string
+        SplurgePubSubLookupError: If subscriber not found for topic
+
+    Example:
+        >>> bus = PubSub()
+        >>> sub_id = bus.subscribe("topic", callback)
+        >>> bus.unsubscribe("topic", sub_id)
+    """
+```
+
+**Error Messages**:
+- `"Topic must be a non-empty string, got: <value>"` - Empty or invalid topic
+- `"No subscribers found for topic '<topic>'"` - Topic not in registry
+- `"Subscriber '<id>' not found for topic '<topic>'"` - Subscriber not found for topic
+
+##### clear
+
+```python
+def clear(
+    self,
+    topic: str | None = None,
+) -> None:
+    """Clear subscribers from topic(s).
+
+    Args:
+        topic: Specific topic to clear, or None to clear all subscribers
+
+    Example:
+        >>> bus = PubSub()
+        >>> bus.subscribe("topic", callback)
+        '...'
+        >>> bus.clear("topic")  # Clear one topic
+        >>> bus.clear()  # Clear all topics
+    """
+```
+
+##### shutdown
+
+```python
+def shutdown(self) -> None:
+    """Shutdown the bus and prevent further operations.
+
+    Clears all subscribers and sets shutdown flag. Subsequent calls to
+    subscribe() or publish() will raise SplurgePubSubRuntimeError.
+
+    Safe to call multiple times (idempotent).
+
+    Example:
+        >>> bus = PubSub()
+        >>> bus.subscribe("topic", callback)
+        '...'
+        >>> bus.shutdown()
+        >>> bus.subscribe("topic", callback)  # Raises SplurgePubSubRuntimeError
+    """
+```
+
+##### on
+
+```python
+def on(self, topic: Topic) -> TopicDecorator:
+    """Create a decorator for subscribing to a topic.
+
+    Allows using @bus.on() syntax for simplified subscriptions.
+
+    Args:
+        topic: Topic to subscribe to
+
+    Returns:
+        TopicDecorator instance that acts as a subscription decorator
+
+    Example:
+        >>> bus = PubSub()
+        >>> @bus.on("user.created")
+        ... def handle_user_created(msg: Message) -> None:
+        ...     print(f"User created: {msg.data}")
+        >>> bus.publish("user.created", {"id": 123})
+        User created: {'id': 123}
+    """
+```
+
+#### Context Manager
+
+```python
+def __enter__(self) -> PubSub:
+    """Enter context manager."""
+
+def __exit__(
+    self,
+    exc_type: type[BaseException] | None,
+    exc_val: BaseException | None,
+    exc_tb: Any,
+) -> None:
+    """Exit context manager and cleanup resources."""
+
+# Usage
+with PubSub() as bus:
+    bus.subscribe("topic", callback)
+    bus.publish("topic", data)
+# bus.shutdown() called automatically
+```
+
+### Message
+
+Immutable message published to the pub-sub system. **Payloads are validated to be dictionaries with string keys.**
+
+#### Constructor
+
+```python
+@dataclass(frozen=True)
+class Message:
+    """Immutable message published to the pub-sub system.
+
+    Validates that payloads are dictionaries with string keys. Non-dict payloads
+    or dicts with non-string keys will raise SplurgePubSubTypeError during construction.
+
+    Args:
+        topic: Topic identifier (uses dot notation, e.g., "user.created")
+        data: Message payload as dict[str, Any]. Must be a dictionary with string keys only.
+        timestamp: Auto-generated UTC timestamp (optional)
+        metadata: Metadata dictionary (defaults to empty dict if not provided)
+
+    Raises:
+        SplurgePubSubValueError: If topic is empty, starts/ends with dots, or contains ".."
+        SplurgePubSubTypeError: If data is not a dict[str, Any] or has non-string keys
+
+    Example:
+        >>> msg = Message(topic="user.created", data={"id": 123, "name": "Alice"})
+        >>> msg.topic
+        'user.created'
+        >>> msg.data
+        {'id': 123, 'name': 'Alice'}
+
+        >>> # Invalid: non-dict payload raises error
+        >>> msg = Message(topic="event", data="string_not_allowed")
+        SplurgePubSubTypeError: Message data must be dict[str, Any], got: str
+
+        >>> # Invalid: non-string keys raise error
+        >>> msg = Message(topic="event", data={1: "one", 2: "two"})
+        SplurgePubSubTypeError: Message data keys must be strings, got key 1 of type int
+    """
+
+    topic: Topic
+    data: MessageData
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    metadata: dict[str, Any] = field(default_factory=dict)
+```
+
+#### Attributes
+
+- `topic: str` - Topic identifier for message routing
+- `data: dict[str, Any]` - Message payload (dictionary with string keys only)
+- `timestamp: datetime` - UTC timestamp of message creation (auto-generated)
+- `metadata: dict[str, Any]` - Metadata dictionary (defaults to empty dict if not provided)
+
+#### Methods
+
+```python
+def __repr__(self) -> str:
+    """Return readable representation."""
+
+def __post_init__(self) -> None:
+    """Validate message fields after initialization.
+
+    Raises:
+        SplurgePubSubValueError: If topic is invalid
+    """
+```
+
+#### Validation Rules
+
+- Topic must be non-empty string
+- Topic cannot contain consecutive dots (..)
+- Topic cannot start or end with dot
+
+**Error Messages**:
+- `"Topic must be a non-empty string, got: <value>"` - Empty or invalid topic
+- `"Topic cannot contain consecutive dots: <topic>"` - Contains ..
+- `"Topic cannot start or end with dot: <topic>"` - Starts or ends with dot
+
+#### Example Usage
+
+```python
+from splurge_pub_sub import Message
+from datetime import datetime, timezone
+
+# Create message with auto-timestamp
+msg1 = Message(topic="user.created", data={"id": 123})
+
+# Create message with custom timestamp
+custom_time = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+msg2 = Message(
+    topic="order.placed",
+    data={"order_id": "ABC-123"},
+    timestamp=custom_time
+)
+
+# Create message with metadata
+msg3 = Message(
+    topic="event.tracked",
+    data={"action": "click"},
+    metadata={"user_id": 456, "session_id": "xyz"}
+)
+
+# Access message properties
+print(msg1.topic)       # "user.created"
+print(msg1.data)        # {"id": 123}
+print(msg1.timestamp)   # datetime object
+print(msg1.metadata)    # {}
+```
+
+### TopicPattern
+
+Represents a topic pattern with wildcard support.
+
+#### Constructor
+
+```python
+@dataclass(frozen=True)
+class TopicPattern:
+    """Represents a topic pattern with wildcard support.
+
+    Supports wildcard patterns:
+    - '*' matches any segment (between dots)
+    - '?' matches any single character within a segment
+    - Exact matches for literal topics
+
+    Args:
+        pattern: Topic pattern string (e.g., "user.created", "user.*")
+
+    Example:
+        >>> p = TopicPattern("user.*")
+        >>> p.matches("user.created")
+        True
+        >>> p.matches("order.created")
+        False
+    """
+
+    pattern: str
+```
+
+#### Methods
+
+##### matches
+
+```python
+def matches(self, topic: str) -> bool:
+    """Check if topic matches this pattern.
+
+    Args:
+        topic: Topic string to check
+
+    Returns:
+        True if topic matches pattern, False otherwise
+
+    Example:
+        >>> pattern = TopicPattern("user.*")
+        >>> pattern.matches("user.created")
+        True
+        >>> pattern.matches("user.updated")
+        True
+        >>> pattern.matches("order.created")
+        False
+    """
+```
+
+#### Properties
+
+##### is_exact
+
+```python
+@property
+def is_exact(self) -> bool:
+    """Whether this is an exact match pattern (no wildcards).
+
+    Returns:
+        True if pattern contains no wildcards
+
+    Example:
+        >>> TopicPattern("user.created").is_exact
+        True
+        >>> TopicPattern("user.*").is_exact
+        False
+    """
+```
+
+#### Validation Rules
+
+- Pattern cannot be empty
+- Pattern cannot start or end with dot
+- Pattern cannot contain consecutive dots (..)
+- Pattern can only contain: alphanumeric, dots, dashes, *, ?
+
+**Error Messages**:
+- `"Pattern cannot be empty"` - Empty pattern
+- `"Pattern cannot start or end with dot"` - Starts/ends with dot
+- `"Pattern cannot contain consecutive dots"` - Contains ..
+- `"Pattern contains invalid character: <char>"` - Invalid character
+
+#### Example Usage
+
+```python
+from splurge_pub_sub import TopicPattern
+
+# Exact match
+exact = TopicPattern("user.created")
+assert exact.matches("user.created") == True
+assert exact.matches("user.updated") == False
+assert exact.is_exact == True
+
+# Wildcard *
+wildcard = TopicPattern("user.*")
+assert wildcard.matches("user.created") == True
+assert wildcard.matches("user.updated") == True
+assert wildcard.matches("user.a.created") == False  # * matches one segment only
+assert wildcard.is_exact == False
+
+# Wildcard ?
+single_char = TopicPattern("user.?.created")
+assert single_char.matches("user.a.created") == True
+assert single_char.matches("user.ab.created") == False
+assert single_char.is_exact == False
+
+# Complex patterns
+complex_pattern = TopicPattern("*.order.*")
+assert complex_pattern.matches("user.order.created") == True
+assert complex_pattern.matches("admin.order.cancelled") == True
+assert complex_pattern.matches("user.created") == False
+```
+
+### TopicDecorator
+
+Decorator for registering topic subscriptions.
+
+#### Constructor
+
+```python
+class TopicDecorator:
+    """Decorator for registering topic subscriptions.
+
+    This is returned by PubSub.on() and is used with @bus.on() syntax
+    to register callback functions for topics.
+
+    Args:
+        pubsub: The PubSub instance
+        topic: The topic to subscribe to
+        pattern: Whether to use pattern matching (future feature)
+    """
+
+    def __init__(
+        self,
+        pubsub: PubSub,
+        topic: Topic,
+        pattern: bool = False,
+    ) -> None:
+        """Initialize decorator."""
+```
+
+#### Methods
+
+##### __call__
+
+```python
+def __call__(self, callback: Callback) -> Callback:
+    """Register callback as subscriber and return it.
+
+    Args:
+        callback: The callback function to register
+
+    Returns:
+        The original callback (allowing chaining)
+
+    Example:
+        >>> @bus.on("topic")
+        ... def handler(msg: Message) -> None:
+        ...     pass
+    """
+```
+
+#### Example Usage
+
+```python
+from splurge_pub_sub import PubSub, Message
+
+bus = PubSub()
+
+# Use as decorator
+@bus.on("user.created")
+def handle_user_created(msg: Message) -> None:
+    print(f"User created: {msg.data['name']}")
+
+@bus.on("user.updated")
+def handle_user_updated(msg: Message) -> None:
+    print(f"User updated: {msg.data['name']}")
+
+# Decorators return the original function
+assert callable(handle_user_created)
+assert callable(handle_user_updated)
+
+# Publish events
+bus.publish("user.created", {"name": "Alice"})
+bus.publish("user.updated", {"name": "Alice Smith"})
+```
+
+## Type Aliases
+
+### Callback
+
+```python
+Callback = Callable[[Message], None]
+```
+
+Type alias for callback functions used in subscriptions.
+
+**Example**:
+```python
+def my_callback(msg: Message) -> None:
+    print(msg.data)
+
+bus.subscribe("topic", my_callback)
+```
+
+### ErrorHandler
+
+```python
+ErrorHandler = Callable[[Exception, str], None]
+```
+
+Type alias for custom error handler functions.
+
+**Parameters**:
+- `exception: Exception` - The exception raised by a subscriber callback
+- `topic: str` - The topic where the error occurred
+
+**Example**:
+```python
+def my_error_handler(exc: Exception, topic: str) -> None:
+    logger.error(f"Error on {topic}: {exc}")
+
+bus = PubSub(error_handler=my_error_handler)
+```
+
+### MessageData
+
+```python
+MessageData = dict[str, Any]
+```
+
+Type alias for message payload data. **Messages require payloads to be dictionaries with string keys.**
+
+All keys in the payload dictionary must be strings. Values can be any JSON-serializable type
+(str, int, float, bool, None, list, dict, etc.).
+
+**Valid Examples**:
+```python
+# Simple dictionary
+{"user_id": 123, "action": "created"}
+
+# Nested dictionaries
+{"user": {"id": 123, "name": "Alice"}, "timestamp": "2025-01-01T00:00:00Z"}
+
+# Mixed value types
+{"id": 123, "name": "Alice", "active": True, "balance": 99.99, "tags": ["admin", "verified"]}
+
+# Empty dictionary
+{}
+```
+
+**Invalid Examples** (will raise `SplurgePubSubTypeError`):
+```python
+"user_created"                    # ✗ String instead of dict
+123                               # ✗ Integer instead of dict
+["event1", "event2"]              # ✗ List instead of dict
+None                              # ✗ None instead of dict
+{1: "one", 2: "two"}             # ✗ Non-string keys
+{(1, 2): "tuple_key"}            # ✗ Tuple key (not string)
+```
+
+**Raises**: `SplurgePubSubTypeError` if payload is not a dict with string keys
+
+### Metadata
+
+```python
+Metadata = dict[str, Any]
+```
+
+Type alias for message metadata dictionary. **Optional metadata attached to messages for passing additional context.**
+
+Metadata provides a mechanism to attach correlation IDs, source information, request IDs, or other message-related context
+that isn't part of the main payload. Defaults to an empty dictionary if not provided.
+
+**Valid Examples**:
+```python
+# Correlation tracking
+{"request_id": "abc-123", "user_id": "user-456"}
+
+# Source information
+{"source": "api", "version": "v2"}
+
+# Request-reply pattern
+{"request_id": "req-123", "reply_topic": "orders.reply"}
+
+# Empty metadata
+{}
+```
+
+**Usage**:
+```python
+# Publish with metadata
+bus.publish("topic", {"key": "value"}, metadata={"source": "api"})
+
+# Access metadata in subscriber
+@bus.on("topic")
+def handler(msg: Message) -> None:
+    source = msg.metadata.get("source")  # Safely access metadata
+    request_id = msg.metadata.get("request_id")
+
+# Metadata is always a dict (never None)
+assert isinstance(msg.metadata, dict)
+```
+
+### Topic
+
+```python
+Topic = str
+```
+
+Type alias for topic identifiers.
+
+### SubscriberId
+
+```python
+SubscriberId = str
+```
+
+Type alias for subscription identifiers (UUID strings).
+
+## Exception Classes
+
+All exceptions inherit from `SplurgePubSubError`.
+
+### SplurgePubSubError
+
+Base exception for all framework errors.
+
+```python
+class SplurgePubSubError(Exception):
+    """Base exception for all Splurge Pub-Sub framework errors."""
+    pass
+```
+
+**Usage**:
+```python
+from splurge_pub_sub import SplurgePubSubError
+
+try:
+    bus.subscribe("topic", callback)
+except SplurgePubSubError as e:
+    print(f"Pub-Sub error: {e}")
+```
+
+### SplurgePubSubValueError
+
+Raised when an invalid value is provided.
+
+Inherits from: `SplurgePubSubError`, `ValueError`
+
+**Common Cases**:
+- Topic is empty string
+- Topic contains invalid characters
+- Required parameter is None
+- Pattern validation fails
+
+**Example**:
+```python
+from splurge_pub_sub import SplurgePubSubValueError
+
+try:
+    bus.subscribe("", callback)  # Empty topic
+except SplurgePubSubValueError as e:
+    print(f"Invalid value: {e}")
+```
+
+### SplurgePubSubTypeError
+
+Raised when a parameter has incorrect type.
+
+Inherits from: `SplurgePubSubError`, `TypeError`
+
+**Common Cases**:
+- Callback is not callable
+- Topic is not a string
+- Data type validation fails
+
+**Example**:
+```python
+from splurge_pub_sub import SplurgePubSubTypeError
+
+try:
+    bus.subscribe("topic", "not_a_function")
+except SplurgePubSubTypeError as e:
+    print(f"Type error: {e}")
+```
+
+### SplurgePubSubLookupError
+
+Raised when a resource is not found.
+
+Inherits from: `SplurgePubSubError`, `LookupError`
+
+**Common Cases**:
+- Attempting to unsubscribe with invalid subscriber ID
+- Attempting to access non-existent topic
+
+**Example**:
+```python
+from splurge_pub_sub import SplurgePubSubLookupError
+
+try:
+    bus.unsubscribe("topic", "invalid-id")
+except SplurgePubSubLookupError as e:
+    print(f"Not found: {e}")
+```
+
+### SplurgePubSubRuntimeError
+
+Raised when a runtime error occurs during operations.
+
+Inherits from: `SplurgePubSubError`, `RuntimeError`
+
+**Common Cases**:
+- Attempting to subscribe/publish after shutdown
+- Internal state corruption
+- Lock acquisition timeout
+
+**Example**:
+```python
+from splurge_pub_sub import SplurgePubSubRuntimeError
+
+try:
+    bus.shutdown()
+    bus.subscribe("topic", callback)
+except SplurgePubSubRuntimeError as e:
+    print(f"Runtime error: {e}")
+```
+
+### SplurgePubSubOSError
+
+Raised when an OS-level error occurs.
+
+Inherits from: `SplurgePubSubError`, `OSError`
+
+**Common Cases**:
+- Thread creation failures
+- Resource allocation failures
+- System-level synchronization errors
+
+**Example**:
+```python
+from splurge_pub_sub import SplurgePubSubOSError
+
+try:
+    # Internal framework operations
+    pass
+except SplurgePubSubOSError as e:
+    print(f"OS error: {e}")
+```
+
+### SplurgePubSubPatternError
+
+Raised when a topic pattern is invalid.
+
+Inherits from: `SplurgePubSubError`, `ValueError`
+
+**Common Cases**:
+- Pattern is empty string
+- Pattern starts or ends with dot
+- Pattern contains consecutive dots
+- Pattern contains invalid characters
+
+**Example**:
+```python
+from splurge_pub_sub import SplurgePubSubPatternError
+
+try:
+    pattern = TopicPattern(".invalid")  # Leading dot
+except SplurgePubSubPatternError as e:
+    print(f"Invalid pattern: {e}")
+```
+
+## Functions
+
+### default_error_handler
+
+```python
+def default_error_handler(exc: Exception, topic: str) -> None:
+    """Default error handler that logs errors.
+
+    Args:
+        exc: The exception that occurred
+        topic: The topic where the error occurred
+
+    Example:
+        >>> exc = ValueError("test")
+        >>> default_error_handler(exc, "user.created")
+        # Logs: ERROR:splurge_pub_sub.core.errors:Error in subscriber callback for topic 'user.created': ValueError: test
+    """
+```
+
+This is the default error handler used if no custom handler is provided. It logs errors at ERROR level with exception info.
+
+**Usage**:
+```python
+from splurge_pub_sub import default_error_handler
+
+# Explicitly use default handler
+bus = PubSub(error_handler=default_error_handler)
+
+# Or rely on it being the default
+bus = PubSub()  # Uses default_error_handler automatically
+```
+
+## Examples
+
+### Basic Pub-Sub
+
+```python
+from splurge_pub_sub import PubSub, Message
+
+# Create bus
+bus = PubSub()
+
+# Define subscriber
+def on_user_created(msg: Message) -> None:
+    print(f"User created: {msg.data['name']}")
+
+# Subscribe
+sub_id = bus.subscribe("user.created", on_user_created)
+
+# Publish
+bus.publish("user.created", {"id": 1, "name": "Alice"})
+
+# Unsubscribe
+bus.unsubscribe("user.created", sub_id)
+```
+
+### With Decorator
+
+```python
+from splurge_pub_sub import PubSub, Message
+
+bus = PubSub()
+
+@bus.on("user.created")
+def on_user_created(msg: Message) -> None:
+    print(f"User created: {msg.data['name']}")
+
+@bus.on("user.updated")
+def on_user_updated(msg: Message) -> None:
+    print(f"User updated: {msg.data['name']}")
+
+bus.publish("user.created", {"id": 1, "name": "Alice"})
+bus.publish("user.updated", {"id": 1, "name": "Alice Smith"})
+```
+
+### With Custom Error Handler
+
+```python
+from splurge_pub_sub import PubSub, Message
+import logging
+
+logger = logging.getLogger(__name__)
+
+def error_handler(exc: Exception, topic: str) -> None:
+    logger.error(f"Error on {topic}: {exc}", exc_info=exc)
+
+bus = PubSub(error_handler=error_handler)
+
+@bus.on("operation")
+def risky_operation(msg: Message) -> None:
+    raise ValueError("Something went wrong!")
+
+bus.publish("operation", {})  # Error handled gracefully
+```
+
+### With Topic Patterns
+
+```python
+from splurge_pub_sub import PubSub, TopicPattern
+
+bus = PubSub()
+
+# Create patterns
+user_pattern = TopicPattern("user.*")
+order_pattern = TopicPattern("order.*")
+
+# Test matching
+assert user_pattern.matches("user.created")
+assert order_pattern.matches("order.placed")
+assert not user_pattern.matches("order.created")
+```
+
+### Context Manager
+
+```python
+from splurge_pub_sub import PubSub, Message
+
+with PubSub() as bus:
+    def callback(msg: Message) -> None:
+        print(msg.data)
+
+    bus.subscribe("topic", callback)
+    bus.publish("topic", {"key": "value"})
+# Cleanup automatic
+```
+
+## Related Documentation
+
+- **[README-DETAILS.md](../README-DETAILS.md)** - Comprehensive developer's guide
+- **[CLI-REFERENCE.md](../cli/CLI-REFERENCE.md)** - Command-line interface
+- **[README.md](../../README.md)** - Project overview
+- **[CHANGELOG.md](../../CHANGELOG.md)** - Version history
