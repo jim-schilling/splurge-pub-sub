@@ -240,6 +240,77 @@ def example_5_topic_patterns() -> None:
         print(f"   {topic:<25} | {e:<6} | {w:<8} | {s:<8} | {c:<10}")
 
 
+def example_7_correlation_id() -> None:
+    """Example 7: Correlation ID for Cross-Library Coordination
+
+    Demonstrates using correlation_id to coordinate events across multiple
+    PubSub instances, enabling cross-library event tracking.
+    """
+    print("\n" + "=" * 70)
+    print("EXAMPLE 7: Correlation ID for Cross-Library Coordination")
+    print("=" * 70)
+
+    # Shared correlation_id for workflow
+    correlation_id = "workflow-abc-123"
+
+    print("\n1. Creating multiple PubSub instances with same correlation_id")
+    dsv_bus = PubSub(correlation_id=correlation_id)
+    tabular_bus = PubSub(correlation_id=correlation_id)
+    typer_bus = PubSub(correlation_id=correlation_id)
+
+    print(f"   Instance correlation_ids: {dsv_bus.correlation_id}")
+
+    # Monitor bus to capture all events
+    monitor_bus = PubSub()
+    received_events: list[tuple[str, str]] = []
+
+    def monitor_all(msg: Message) -> None:
+        """Monitor all events with matching correlation_id."""
+        received_events.append((msg.topic, msg.correlation_id or "None"))
+        print(f"  ✓ [{msg.correlation_id}] {msg.topic}: {msg.data}")
+
+    print("\n2. Subscribing to all topics with correlation_id filter")
+    monitor_bus.subscribe("*", monitor_all, correlation_id=correlation_id)
+
+    print("\n3. Publishing from different library instances")
+    dsv_bus.publish("dsv.file.loaded", {"file": "data.csv"})
+    tabular_bus.publish("tabular.table.created", {"rows": 100})
+    typer_bus.publish("typer.command.executed", {"command": "process"})
+
+    print(f"\n4. Total events received: {len(received_events)}")
+    print("   All events have matching correlation_id")
+    print(f"   Tracked correlation_ids: {monitor_bus.correlation_ids}")
+
+    print("\n5. Correlation ID filtering example")
+    filter_bus = PubSub(correlation_id="default-id")
+    received_a: list[str] = []
+    received_b: list[str] = []
+    received_any: list[str] = []
+
+    def handler_a(msg: Message) -> None:
+        received_a.append(msg.data["id"])
+
+    def handler_b(msg: Message) -> None:
+        received_b.append(msg.data["id"])
+
+    def handler_any(msg: Message) -> None:
+        received_any.append(msg.data["id"])
+
+    filter_bus.subscribe("test.topic", handler_a, correlation_id="id-a")
+    filter_bus.subscribe("test.topic", handler_b, correlation_id="id-b")
+    filter_bus.subscribe("test.topic", handler_any, correlation_id="*")
+
+    filter_bus.publish("test.topic", {"id": "1"}, correlation_id="id-a")
+    filter_bus.publish("test.topic", {"id": "2"}, correlation_id="id-b")
+    filter_bus.publish("test.topic", {"id": "3"}, correlation_id="id-c")
+
+    print(f"   Handler A (id-a): {received_a}")  # ['1']
+    print(f"   Handler B (id-b): {received_b}")  # ['2']
+    print(f"   Handler Any (*): {received_any}")  # ['1', '2', '3']
+    print(f"   Instance correlation_id: {filter_bus.correlation_id}")
+    print(f"   All published correlation_ids: {filter_bus.correlation_ids}")
+
+
 def example_6_error_handling() -> None:
     """Example 6: Error Handling
 
@@ -291,14 +362,14 @@ def example_6_error_handling() -> None:
         print(f"   ✓ Caught: {type(e).__name__}")
 
 
-def example_7_context_manager() -> None:
-    """Example 7: Context Manager
+def example_8_context_manager() -> None:
+    """Example 8: Context Manager
 
     Demonstrates automatic resource cleanup using the context manager
     protocol.
     """
     print("\n" + "=" * 70)
-    print("EXAMPLE 7: Context Manager")
+    print("EXAMPLE 8: Context Manager")
     print("=" * 70)
 
     print("\n1. Using PubSub with context manager")
@@ -318,6 +389,7 @@ def example_7_context_manager() -> None:
 
     print("\n2. Context manager automatically calls bus.shutdown()")
     print("   (Resources cleaned up, subscriptions cleared)")
+    print(f"   Bus shutdown status: {bus.is_shutdown}")
 
     # Try to use bus after shutdown
     print("\n3. Attempting to use bus after shutdown")
@@ -327,13 +399,13 @@ def example_7_context_manager() -> None:
         print(f"   ✓ Operation blocked: {type(e).__name__}")
 
 
-def example_8_clear_operations() -> None:
-    """Example 8: Clear Operations
+def example_9_clear_operations() -> None:
+    """Example 9: Clear Operations
 
     Demonstrates clearing subscribers from specific topics or all topics.
     """
     print("\n" + "=" * 70)
-    print("EXAMPLE 8: Clear Operations")
+    print("EXAMPLE 9: Clear Operations")
     print("=" * 70)
 
     bus = PubSub()
@@ -370,14 +442,14 @@ def example_8_clear_operations() -> None:
     print("   (no output - no subscribers)")
 
 
-def example_9_real_world_scenario() -> None:
-    """Example 9: Real-World Scenario
+def example_10_real_world_scenario() -> None:
+    """Example 10: Real-World Scenario
 
     Demonstrates a practical e-commerce event system combining multiple
     features (decorators, error handling, multiple subscribers).
     """
     print("\n" + "=" * 70)
-    print("EXAMPLE 9: Real-World Scenario - E-Commerce Events")
+    print("EXAMPLE 10: Real-World Scenario - E-Commerce Events")
     print("=" * 70)
 
     # Create event bus with error handling
@@ -465,9 +537,10 @@ def main() -> None:
         example_4_message_structure()
         example_5_topic_patterns()
         example_6_error_handling()
-        example_7_context_manager()
-        example_8_clear_operations()
-        example_9_real_world_scenario()
+        example_7_correlation_id()
+        example_8_context_manager()
+        example_9_clear_operations()
+        example_10_real_world_scenario()
 
         print("\n" + "#" * 70)
         print("# ALL EXAMPLES COMPLETED SUCCESSFULLY")

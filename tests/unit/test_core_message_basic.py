@@ -184,3 +184,81 @@ class TestMessageMetadata:
 
         msg2 = Message(topic="test", data={"value": "test"}, metadata={"key": "value"})
         assert msg2.metadata == {"key": "value"}
+
+
+class TestMessageCorrelationId:
+    """Tests for Message correlation_id validation."""
+
+    def test_message_with_valid_correlation_id_succeeds(self) -> None:
+        """Test that valid correlation_id is accepted."""
+        msg = Message(topic="test", data={}, correlation_id="workflow-123")
+        assert msg.correlation_id == "workflow-123"
+
+    def test_message_with_none_correlation_id_succeeds(self) -> None:
+        """Test that None correlation_id is accepted."""
+        msg = Message(topic="test", data={}, correlation_id=None)
+        assert msg.correlation_id is None
+
+    def test_message_with_uuid_correlation_id_succeeds(self) -> None:
+        """Test that UUID format correlation_id is accepted."""
+        uuid_str = "550e8400-e29b-41d4-a716-446655440000"
+        msg = Message(topic="test", data={}, correlation_id=uuid_str)
+        assert msg.correlation_id == uuid_str
+
+    def test_message_with_digit_starting_correlation_id_succeeds(self) -> None:
+        """Test that correlation_id starting with digit is accepted."""
+        msg = Message(topic="test", data={}, correlation_id="123abc")
+        assert msg.correlation_id == "123abc"
+
+    def test_message_with_empty_string_correlation_id_raises_error(self) -> None:
+        """Test that empty string correlation_id raises error."""
+        with pytest.raises(SplurgePubSubValueError, match="cannot be empty string"):
+            Message(topic="test", data={}, correlation_id="")
+
+    def test_message_with_wildcard_correlation_id_raises_error(self) -> None:
+        """Test that wildcard '*' correlation_id raises error."""
+        with pytest.raises(SplurgePubSubValueError, match="cannot be '\\*'"):
+            Message(topic="test", data={}, correlation_id="*")
+
+    def test_message_with_too_long_correlation_id_raises_error(self) -> None:
+        """Test that correlation_id longer than 64 chars raises error."""
+        long_id = "a" * 65
+        with pytest.raises(SplurgePubSubValueError, match="length must be 1-64"):
+            Message(topic="test", data={}, correlation_id=long_id)
+
+    def test_message_with_zero_length_correlation_id_raises_error(self) -> None:
+        """Test that zero-length correlation_id raises error."""
+        # Empty string is caught earlier with a specific error message
+        with pytest.raises(SplurgePubSubValueError, match="cannot be empty string"):
+            Message(topic="test", data={}, correlation_id="")
+
+    def test_message_with_invalid_pattern_correlation_id_raises_error(self) -> None:
+        """Test that correlation_id with invalid pattern raises error."""
+        with pytest.raises(SplurgePubSubValueError, match="pattern"):
+            Message(topic="test", data={}, correlation_id="-invalid")
+
+    def test_message_with_consecutive_dots_correlation_id_raises_error(self) -> None:
+        """Test that correlation_id with consecutive dots raises error."""
+        with pytest.raises(SplurgePubSubValueError, match="consecutive separator"):
+            Message(topic="test", data={}, correlation_id="test..id")
+
+    def test_message_with_consecutive_dashes_correlation_id_raises_error(self) -> None:
+        """Test that correlation_id with consecutive dashes raises error."""
+        with pytest.raises(SplurgePubSubValueError, match="consecutive separator"):
+            Message(topic="test", data={}, correlation_id="test--id")
+
+    def test_message_with_consecutive_underscores_correlation_id_raises_error(self) -> None:
+        """Test that correlation_id with consecutive underscores raises error."""
+        with pytest.raises(SplurgePubSubValueError, match="consecutive separator"):
+            Message(topic="test", data={}, correlation_id="test__id")
+
+    def test_message_with_mixed_consecutive_separators_correlation_id_raises_error(self) -> None:
+        """Test that correlation_id with mixed consecutive separators raises error."""
+        with pytest.raises(SplurgePubSubValueError, match="consecutive separator"):
+            Message(topic="test", data={}, correlation_id="test.-id")
+
+        with pytest.raises(SplurgePubSubValueError, match="consecutive separator"):
+            Message(topic="test", data={}, correlation_id="test_.id")
+
+        with pytest.raises(SplurgePubSubValueError, match="consecutive separator"):
+            Message(topic="test", data={}, correlation_id="test-_id")

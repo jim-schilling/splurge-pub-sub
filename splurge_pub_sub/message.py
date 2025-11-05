@@ -8,6 +8,7 @@ Domains:
     - message
 """
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -27,6 +28,7 @@ class Message:
     Messages represent events published to topics. Each message contains:
     - A topic (routing key)
     - Data payload (dict[str, Any])
+    - Correlation ID (optional, for cross-library event tracking)
     - Auto-generated timestamp
     - Metadata dict (defaults to empty dict if not provided)
 
@@ -36,11 +38,13 @@ class Message:
     Attributes:
         topic: Topic identifier (uses dot notation, e.g., "user.created")
         data: Message payload (dict[str, Any])
+        correlation_id: Optional correlation ID for event tracking (defaults to None)
         timestamp: Auto-generated UTC timestamp of message creation
         metadata: Dictionary for additional context (defaults to empty dict)
 
     Raises:
-        SplurgePubSubValueError: If topic validation fails
+        SplurgePubSubValueError: If topic validation fails or correlation_id is invalid
+        SplurgePubSubTypeError: If data is not dict[str, Any] or has non-string keys
 
     Example:
         >>> msg = Message(topic="user.created", data={"id": 123})
@@ -60,6 +64,9 @@ class Message:
     data: MessageData
     """Message payload (can be any type)."""
 
+    correlation_id: str | None = None
+    """Optional correlation ID for cross-library event tracking (defaults to None)."""
+
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     """UTC timestamp of message creation (auto-generated if not provided)."""
 
@@ -70,7 +77,7 @@ class Message:
         """Validate message fields after initialization.
 
         Raises:
-            SplurgePubSubValueError: If topic is invalid
+            SplurgePubSubValueError: If topic is invalid or correlation_id is invalid
             SplurgePubSubTypeError: If data is not dict or keys are not strings
         """
         # Validate topic
@@ -96,6 +103,35 @@ class Message:
                     f"Message data keys must be strings, got key {key!r} of type {type(key).__name__}"
                 )
 
+        # Validate correlation_id if provided
+        if self.correlation_id is not None:
+            # Disallow empty string
+            if self.correlation_id == "":
+                raise SplurgePubSubValueError("correlation_id cannot be empty string, use None instead")
+
+            # Disallow wildcard '*' (only for filters, not concrete values)
+            if self.correlation_id == "*":
+                raise SplurgePubSubValueError("correlation_id cannot be '*' (wildcard), must be a specific value")
+
+            # Validate pattern: [a-zA-Z0-9][a-zA-Z0-9\.-_]* (1-64 chars)
+            if not (1 <= len(self.correlation_id) <= 64):
+                raise SplurgePubSubValueError(
+                    f"correlation_id length must be 1-64 chars, got {len(self.correlation_id)}"
+                )
+
+            if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9\.\-_]*$", self.correlation_id):
+                raise SplurgePubSubValueError(
+                    f"correlation_id must match pattern [a-zA-Z0-9][a-zA-Z0-9\\.-_]* (1-64 chars), got: {self.correlation_id!r}"
+                )
+
+            # Check for consecutive separators (., -, _) - same or different
+            separators = ".-_"
+            for i in range(len(self.correlation_id) - 1):
+                if self.correlation_id[i] in separators and self.correlation_id[i + 1] in separators:
+                    raise SplurgePubSubValueError(
+                        f"correlation_id cannot contain consecutive separator characters ('.', '-', '_'), got: {self.correlation_id!r}"
+                    )
+
     def __repr__(self) -> str:
         """Return a readable representation of the message.
 
@@ -105,7 +141,8 @@ class Message:
             "Message(topic='test.topic', data={'key': 'value'}, ...)"
         """
         timestamp_str = self.timestamp.isoformat()
+        correlation_id_str = f", correlation_id={self.correlation_id!r}" if self.correlation_id is not None else ""
         return (
-            f"Message(topic={self.topic!r}, data={self.data!r}, "
-            f"timestamp={timestamp_str!r}, metadata={self.metadata!r})"
+            f"Message(topic={self.topic!r}, data={self.data!r}"
+            f"{correlation_id_str}, timestamp={timestamp_str!r}, metadata={self.metadata!r})"
         )

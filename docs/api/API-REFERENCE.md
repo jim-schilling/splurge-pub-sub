@@ -23,18 +23,26 @@ Main class for publish-subscribe operations.
 class PubSub:
     def __init__(
         self,
+        *,
         error_handler: ErrorHandler | None = None,
+        correlation_id: str | None = None,
     ) -> None:
         """Initialize a new PubSub instance.
 
         Args:
             error_handler: Optional custom error handler for subscriber callbacks.
-                          Defaults to logging errors.
+                          Defaults to logging errors. Must be passed as a keyword
+                          argument.
+            correlation_id: Optional correlation ID. If None or '', auto-generates.
+                           Must match pattern [a-zA-Z0-9][a-zA-Z0-9\\.-_]* (1-64 chars)
+                           with no consecutive '.', '-', or '_' characters.
+                           Must be passed as a keyword argument.
 
         Example:
             >>> def my_error_handler(exc: Exception, topic: str) -> None:
             ...     print(f"Error on {topic}: {exc}")
             >>> bus = PubSub(error_handler=my_error_handler)
+            >>> bus = PubSub(correlation_id="my-correlation-id")
         """
 ```
 
@@ -47,6 +55,8 @@ def subscribe(
     self,
     topic: str,
     callback: Callback,
+    *,
+    correlation_id: str | None = None,
 ) -> SubscriberId:
     """Subscribe to a topic with a callback function.
 
@@ -54,14 +64,18 @@ def subscribe(
     Multiple subscribers can subscribe to the same topic.
 
     Args:
-        topic: Topic identifier (uses dot notation, e.g., "user.created")
+        topic: Topic identifier (uses dot notation, e.g., "user.created") or "*" for all topics
         callback: Callable that accepts a Message and returns None
+        correlation_id: Optional filter. If None or '', uses instance correlation_id.
+                       If '*', matches any correlation_id. Otherwise must match pattern
+                       [a-zA-Z0-9][a-zA-Z0-9\\.-_]* (1-64 chars) with no consecutive '.', '-', or '_'.
+                       Must be passed as a keyword argument.
 
     Returns:
         SubscriberId: Unique identifier for this subscription (UUID string)
 
     Raises:
-        SplurgePubSubValueError: If topic is empty or not a string
+        SplurgePubSubValueError: If topic is empty or not a string, or correlation_id is invalid
         SplurgePubSubTypeError: If callback is not callable
         SplurgePubSubRuntimeError: If the bus is shutdown
 
@@ -216,6 +230,86 @@ def on(self, topic: Topic) -> TopicDecorator:
     """
 ```
 
+#### Properties
+
+```python
+@property
+def correlation_id(self) -> str:
+    """Get the correlation ID for this PubSub instance.
+    
+    Returns:
+        The instance correlation ID (auto-generated if not provided in constructor)
+    
+    Example:
+        >>> bus = PubSub(correlation_id="my-id")
+        >>> bus.correlation_id
+        'my-id'
+    """
+
+@property
+def correlation_ids(self) -> set[str]:
+    """Get all correlation IDs that have been published.
+    
+    Returns:
+        A copy of the set of all correlation IDs that have been published.
+        Includes the instance correlation_id and any correlation_ids used in publish().
+    
+    Example:
+        >>> bus = PubSub(correlation_id="instance-id")
+        >>> bus.publish("topic", {}, correlation_id="custom-1")
+        >>> bus.correlation_ids
+        {'instance-id', 'custom-1'}
+    """
+
+@property
+def is_shutdown(self) -> bool:
+    """Check if the PubSub instance has been shutdown.
+    
+    Returns:
+        True if shutdown() has been called, False otherwise
+    
+    Example:
+        >>> bus = PubSub()
+        >>> bus.is_shutdown
+        False
+        >>> bus.shutdown()
+        >>> bus.is_shutdown
+        True
+    """
+
+@property
+def subscribers(self) -> dict[Topic, list[_SubscriberEntry]]:
+    """Get all topic-based subscribers.
+    
+    Returns:
+        A copy of the subscribers dictionary, keyed by topic.
+        Note: Returns internal _SubscriberEntry objects for inspection only.
+    
+    Example:
+        >>> bus = PubSub()
+        >>> bus.subscribe("topic", callback)
+        '...'
+        >>> len(bus.subscribers.get("topic", []))
+        1
+    """
+
+@property
+def wildcard_subscribers(self) -> list[_SubscriberEntry]:
+    """Get all wildcard topic subscribers (topic="*").
+    
+    Returns:
+        A copy of the list of wildcard subscribers.
+        Note: Returns internal _SubscriberEntry objects for inspection only.
+    
+    Example:
+        >>> bus = PubSub()
+        >>> bus.subscribe("*", callback)
+        '...'
+        >>> len(bus.wildcard_subscribers)
+        1
+    """
+```
+
 #### Context Manager
 
 ```python
@@ -254,6 +348,7 @@ class Message:
     Args:
         topic: Topic identifier (uses dot notation, e.g., "user.created")
         data: Message payload as dict[str, Any]. Must be a dictionary with string keys only.
+        correlation_id: Optional correlation ID for cross-library event tracking (defaults to None)
         timestamp: Auto-generated UTC timestamp (optional)
         metadata: Metadata dictionary (defaults to empty dict if not provided)
 
@@ -287,6 +382,7 @@ class Message:
 
 - `topic: str` - Topic identifier for message routing
 - `data: dict[str, Any]` - Message payload (dictionary with string keys only)
+- `correlation_id: str | None` - Optional correlation ID for cross-library event tracking (defaults to None)
 - `timestamp: datetime` - UTC timestamp of message creation (auto-generated)
 - `metadata: dict[str, Any]` - Metadata dictionary (defaults to empty dict if not provided)
 
@@ -879,6 +975,63 @@ bus.publish("user.created", {"id": 1, "name": "Alice"})
 
 # Unsubscribe
 bus.unsubscribe("user.created", sub_id)
+```
+
+### Correlation ID for Cross-Library Coordination
+
+```python
+from splurge_pub_sub import PubSub, Message
+
+# Create multiple PubSub instances with same correlation_id
+correlation_id = "workflow-abc-123"
+
+# Library A's PubSub instance
+dsv_bus = PubSub(correlation_id=correlation_id)
+
+# Library B's PubSub instance
+tabular_bus = PubSub(correlation_id=correlation_id)
+
+# Monitor all events with same correlation_id
+monitor_bus = PubSub()
+
+def monitor_all(msg: Message) -> None:
+    print(f"[{msg.correlation_id}] {msg.topic}: {msg.data}")
+
+# Subscribe to all topics with specific correlation_id
+monitor_bus.subscribe("*", monitor_all, correlation_id=correlation_id)
+
+# Publish from different libraries
+dsv_bus.publish("dsv.file.loaded", {"file": "data.csv"})
+tabular_bus.publish("tabular.table.created", {"rows": 100})
+
+# Both messages received by monitor (same correlation_id)
+```
+
+### Correlation ID Filtering
+
+```python
+from splurge_pub_sub import PubSub
+
+bus = PubSub(correlation_id="default-id")
+
+# Subscribe with specific correlation_id filter
+def handle_id_a(msg: Message) -> None:
+    print(f"ID-A: {msg.data}")
+
+def handle_id_b(msg: Message) -> None:
+    print(f"ID-B: {msg.data}")
+
+def handle_any(msg: Message) -> None:
+    print(f"Any: {msg.data}")
+
+bus.subscribe("test.topic", handle_id_a, correlation_id="id-a")
+bus.subscribe("test.topic", handle_id_b, correlation_id="id-b")
+bus.subscribe("test.topic", handle_any, correlation_id="*")  # Wildcard matches any
+
+# Publish with different correlation_ids
+bus.publish("test.topic", {"data": "1"}, correlation_id="id-a")  # Only handle_id_a and handle_any
+bus.publish("test.topic", {"data": "2"}, correlation_id="id-b")  # Only handle_id_b and handle_any
+bus.publish("test.topic", {"data": "3"}, correlation_id="id-c")  # Only handle_any
 ```
 
 ### With Decorator
