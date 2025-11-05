@@ -8,6 +8,7 @@ Domains:
 """
 
 import logging
+import re
 import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -39,6 +40,8 @@ class _SubscriberEntry:
 
     subscriber_id: SubscriberId
     callback: Callback
+    correlation_id_filter: str | None = None
+    """Correlation ID filter. None means match any correlation_id (wildcard '*')."""
 
 
 class PubSub:
@@ -79,9 +82,66 @@ class PubSub:
         - Shutdown: bus.shutdown() or use context manager
     """
 
+    @staticmethod
+    def _generate_correlation_id() -> str:
+        """Generate a pattern-compliant correlation ID.
+
+        Returns:
+            A UUID string that matches the correlation_id pattern.
+        """
+        return str(uuid4())
+
+    @staticmethod
+    def _normalize_correlation_id(
+        value: str | None, instance_correlation_id: str, allow_wildcard: bool = True
+    ) -> str | None:
+        """Normalize and validate correlation_id value.
+
+        Args:
+            value: Correlation ID value (None, '', '*', or string)
+            instance_correlation_id: Instance default correlation_id
+            allow_wildcard: If False, raise error for '*' (used in publish)
+
+        Returns:
+            None if wildcard (match any), str if specific filter/value
+
+        Raises:
+            SplurgePubSubValueError: If value is invalid or doesn't match pattern
+        """
+        # Normalize None/'' to instance correlation_id
+        if value is None or value == "":
+            return instance_correlation_id
+
+        # Check for wildcard '*' first
+        if value == "*":
+            if not allow_wildcard:
+                raise SplurgePubSubValueError("Cannot use '*' as correlation_id in publish()")
+            return None  # Wildcard = match any
+
+        # Validate pattern: [a-zA-Z0-9][a-zA-Z0-9\.-_]* (1-64 chars)
+        if not (1 <= len(value) <= 64):
+            raise SplurgePubSubValueError(f"correlation_id length must be 1-64 chars, got {len(value)}")
+
+        if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9\.\-_]*$", value):
+            raise SplurgePubSubValueError(
+                f"correlation_id must match pattern [a-zA-Z0-9][a-zA-Z0-9\\.-_]* (1-64 chars), got: {value!r}"
+            )
+
+        # Check for consecutive separators (., -, _) - same or different
+        separators = ".-_"
+        for i in range(len(value) - 1):
+            if value[i] in separators and value[i + 1] in separators:
+                raise SplurgePubSubValueError(
+                    f"correlation_id cannot contain consecutive separator characters ('.', '-', '_'), got: {value!r}"
+                )
+
+        return value
+
     def __init__(
         self,
+        *,
         error_handler: "ErrorHandler | None" = None,
+        correlation_id: str | None = None,
     ) -> None:
         """Initialize a new PubSub instance.
 
@@ -90,24 +150,45 @@ class PubSub:
 
         Args:
             error_handler: Optional custom error handler for subscriber callbacks.
-                          Defaults to logging errors.
+                          Defaults to logging errors. Must be passed as a keyword
+                          argument.
+            correlation_id: Optional correlation ID. If None or '', auto-generates.
+                           Must match pattern [a-zA-Z0-9][a-zA-Z0-9\\.-_]* (1-64 chars)
+                           with no consecutive '.', '-', or '_' characters.
+                           Must be passed as a keyword argument.
 
         Example:
             >>> def my_error_handler(exc: Exception, topic: str) -> None:
             ...     print(f"Error on {topic}: {exc}")
             >>> bus = PubSub(error_handler=my_error_handler)
+            >>> bus = PubSub(correlation_id="my-correlation-id")
         """
         from .errors import default_error_handler
 
         self._lock: threading.RLock = threading.RLock()
         self._subscribers: dict[Topic, list[_SubscriberEntry]] = {}
+        self._wildcard_subscribers: list[_SubscriberEntry] = []
         self._is_shutdown: bool = False
         self._error_handler: ErrorHandler = error_handler or default_error_handler
+
+        # Normalize and set correlation_id
+        if correlation_id is None or correlation_id == "":
+            self._correlation_id: str = self._generate_correlation_id()
+        else:
+            normalized = self._normalize_correlation_id(correlation_id, "", allow_wildcard=False)
+            if normalized is None:
+                raise SplurgePubSubValueError("correlation_id cannot be '*' in constructor")
+            self._correlation_id = normalized
+
+        # Initialize correlation_ids set with instance correlation_id
+        self._correlation_ids: set[str] = {self._correlation_id}
 
     def subscribe(
         self,
         topic: str,
         callback: Callback,
+        *,
+        correlation_id: str | None = None,
     ) -> SubscriberId:
         """Subscribe to a topic with a callback function.
 
@@ -115,14 +196,18 @@ class PubSub:
         Multiple subscribers can subscribe to the same topic.
 
         Args:
-            topic: Topic identifier (uses dot notation, e.g., "user.created")
+            topic: Topic identifier (uses dot notation, e.g., "user.created") or "*" for all topics
             callback: Callable that accepts a Message and returns None
+            correlation_id: Optional filter. If None or '', uses instance correlation_id.
+                           If '*', matches any correlation_id. Otherwise must match pattern
+                           [a-zA-Z0-9][a-zA-Z0-9\\.-_]* (1-64 chars) with no consecutive '.', '-', or '_'.
+                           Must be passed as a keyword argument.
 
         Returns:
             SubscriberId: Unique identifier for this subscription
 
         Raises:
-            SplurgePubSubValueError: If topic is empty
+            SplurgePubSubValueError: If topic is empty or correlation_id is invalid
             SplurgePubSubTypeError: If callback is not callable
             SplurgePubSubRuntimeError: If the bus is shutdown
 
@@ -131,6 +216,7 @@ class PubSub:
             >>> def handle_event(msg: Message) -> None:
             ...     print(f"Event: {msg.data}")
             >>> sub_id = bus.subscribe("order.created", handle_event)
+            >>> sub_id = bus.subscribe("*", handle_event, correlation_id="my-id")
             >>> sub_id
             '...'  # UUID string
         """
@@ -140,6 +226,11 @@ class PubSub:
 
         if not callable(callback):
             raise SplurgePubSubTypeError(f"Callback must be callable, got: {type(callback).__name__}")
+
+        # Normalize correlation_id
+        correlation_id_filter = self._normalize_correlation_id(
+            correlation_id, self._correlation_id, allow_wildcard=True
+        )
 
         with self._lock:
             # Check shutdown state
@@ -153,22 +244,50 @@ class PubSub:
             entry = _SubscriberEntry(
                 subscriber_id=subscriber_id,
                 callback=callback,
+                correlation_id_filter=correlation_id_filter,
             )
 
-            # Add to registry
-            if topic not in self._subscribers:
-                self._subscribers[topic] = []
-            self._subscribers[topic].append(entry)
-
-            logger.debug(f"Subscriber {subscriber_id} subscribed to topic '{topic}'")
+            # Handle wildcard topic "*"
+            if topic == "*":
+                self._wildcard_subscribers.append(entry)
+                logger.debug(
+                    f"Subscriber {subscriber_id} subscribed to all topics (correlation_id={correlation_id_filter!r})"
+                )
+            else:
+                # Add to registry
+                if topic not in self._subscribers:
+                    self._subscribers[topic] = []
+                self._subscribers[topic].append(entry)
+                logger.debug(
+                    f"Subscriber {subscriber_id} subscribed to topic '{topic}'"
+                    f" (correlation_id={correlation_id_filter!r})"
+                )
 
         return subscriber_id
+
+    def _matches_correlation_id(self, message: Message, entry: _SubscriberEntry) -> bool:
+        """Check if message correlation_id matches subscriber filter.
+
+        Args:
+            message: Published message
+            entry: Subscriber entry to check
+
+        Returns:
+            True if correlation_id matches filter, False otherwise
+        """
+        # If filter is None, it's a wildcard - match any correlation_id
+        if entry.correlation_id_filter is None:
+            return True
+        # Otherwise, exact match required
+        return entry.correlation_id_filter == message.correlation_id
 
     def publish(
         self,
         topic: str,
         data: MessageData | None = None,
         metadata: Metadata | None = None,
+        *,
+        correlation_id: str | None = None,
     ) -> None:
         """Publish a message to a topic.
 
@@ -182,9 +301,13 @@ class PubSub:
             topic: Topic identifier (uses dot notation, e.g., "user.created")
             data: Message payload (dict[str, Any] with string keys only). Defaults to empty dict.
             metadata: Optional metadata dictionary for message context. Defaults to empty dict.
+            correlation_id: Optional correlation ID override. If None or '', uses self._correlation_id.
+                           If '*', raises error. Otherwise must match pattern [a-zA-Z0-9][a-zA-Z0-9\\.-_]*
+                           (1-64 chars) with no consecutive '.', '-', or '_' characters.
+                           Must be passed as a keyword argument.
 
         Raises:
-            SplurgePubSubValueError: If topic is empty or not a string
+            SplurgePubSubValueError: If topic is empty or not a string, or correlation_id is invalid
             SplurgePubSubTypeError: If data is not a dict[str, Any] or has non-string keys
 
         Example:
@@ -193,30 +316,54 @@ class PubSub:
             '...'
             >>> bus.publish("order.created", {"order_id": 42, "total": 99.99})
             >>> bus.publish("order.created", {"order_id": 42}, metadata={"source": "api"})
-            >>> bus.publish("order.created")  # Empty data and metadata
+            >>> bus.publish("order.created", correlation_id="custom-id")
         """
         # Validate input
         if not topic or not isinstance(topic, str):
             raise SplurgePubSubValueError(f"Topic must be a non-empty string, got: {topic!r}")
+
+        # Normalize correlation_id (raises error if '*' in publish)
+        message_correlation_id = self._normalize_correlation_id(
+            correlation_id, self._correlation_id, allow_wildcard=False
+        )
+        if message_correlation_id is None:
+            raise SplurgePubSubValueError("correlation_id cannot be None after normalization in publish()")
+
+        # Add to correlation_ids set (thread-safe)
+        with self._lock:
+            self._correlation_ids.add(message_correlation_id)
 
         # Initialize data and metadata to empty dicts if None
         message = Message(
             topic=topic,
             data=data if data is not None else {},
             metadata=metadata if metadata is not None else {},
+            correlation_id=message_correlation_id,
         )
 
         # Get snapshot of subscribers (release lock before callbacks)
         with self._lock:
-            subscribers = list(self._subscribers.get(topic, []))
+            topic_subscribers = list(self._subscribers.get(topic, []))
+            wildcard_subscribers = list(self._wildcard_subscribers)
 
         # Execute callbacks outside lock to allow re-entrant publishes
-        for entry in subscribers:
-            try:
-                entry.callback(message)
-            except Exception as e:
-                # Call error handler for subscriber exceptions
-                self._error_handler(e, topic)
+        # Check topic-based subscribers
+        for entry in topic_subscribers:
+            if self._matches_correlation_id(message, entry):
+                try:
+                    entry.callback(message)
+                except Exception as e:
+                    # Call error handler for subscriber exceptions
+                    self._error_handler(e, topic)
+
+        # Check wildcard subscribers (topic="*")
+        for entry in wildcard_subscribers:
+            if self._matches_correlation_id(message, entry):
+                try:
+                    entry.callback(message)
+                except Exception as e:
+                    # Call error handler for subscriber exceptions
+                    self._error_handler(e, topic)
 
     def unsubscribe(
         self,
@@ -226,7 +373,7 @@ class PubSub:
         """Unsubscribe a subscriber from a topic.
 
         Args:
-            topic: Topic identifier
+            topic: Topic identifier or "*" for wildcard subscriptions
             subscriber_id: Subscriber ID from subscribe() call
 
         Raises:
@@ -237,12 +384,23 @@ class PubSub:
             >>> bus = PubSub()
             >>> sub_id = bus.subscribe("topic", callback)
             >>> bus.unsubscribe("topic", sub_id)
+            >>> sub_id = bus.subscribe("*", callback)
+            >>> bus.unsubscribe("*", sub_id)
         """
         # Validate input
         if not topic or not isinstance(topic, str):
             raise SplurgePubSubValueError(f"Topic must be a non-empty string, got: {topic!r}")
 
         with self._lock:
+            # Handle wildcard topic "*"
+            if topic == "*":
+                for i, entry in enumerate(self._wildcard_subscribers):
+                    if entry.subscriber_id == subscriber_id:
+                        self._wildcard_subscribers.pop(i)
+                        logger.debug(f"Subscriber {subscriber_id} unsubscribed from all topics")
+                        return
+                raise SplurgePubSubLookupError(f"Subscriber '{subscriber_id}' not found for wildcard topic '*'")
+
             # Find and remove the subscriber
             if topic not in self._subscribers:
                 raise SplurgePubSubLookupError(f"No subscribers found for topic '{topic}'")
@@ -266,20 +424,27 @@ class PubSub:
         """Clear subscribers from topic(s).
 
         Args:
-            topic: Specific topic to clear, or None to clear all subscribers
+            topic: Specific topic to clear, or None to clear all subscribers.
+                  Use "*" to clear only wildcard subscribers.
 
         Example:
             >>> bus = PubSub()
             >>> bus.subscribe("topic", callback)
             '...'
             >>> bus.clear("topic")  # Clear one topic
-            >>> bus.clear()  # Clear all topics
+            >>> bus.clear("*")  # Clear wildcard subscribers
+            >>> bus.clear()  # Clear all topics and wildcard subscribers
         """
         with self._lock:
             if topic is None:
                 # Clear all subscribers
                 self._subscribers.clear()
+                self._wildcard_subscribers.clear()
                 logger.debug("All subscribers cleared")
+            elif topic == "*":
+                # Clear only wildcard subscribers
+                self._wildcard_subscribers.clear()
+                logger.debug("Wildcard subscribers cleared")
             else:
                 # Clear specific topic
                 if topic in self._subscribers:
@@ -303,6 +468,7 @@ class PubSub:
         """
         with self._lock:
             self._subscribers.clear()
+            self._wildcard_subscribers.clear()
             self._is_shutdown = True
             logger.debug("PubSub shutdown complete")
 
@@ -359,3 +525,86 @@ class PubSub:
             exc_tb: Exception traceback if exception occurred, else None
         """
         self.shutdown()
+
+    @property
+    def correlation_id(self) -> str:
+        """Get the correlation ID for this PubSub instance.
+
+        Returns:
+            The instance correlation ID (auto-generated if not provided in constructor)
+
+        Example:
+            >>> bus = PubSub(correlation_id="my-id")
+            >>> bus.correlation_id
+            'my-id'
+        """
+        return self._correlation_id
+
+    @property
+    def correlation_ids(self) -> set[str]:
+        """Get all correlation IDs that have been published.
+
+        Returns:
+            A copy of the set of all correlation IDs that have been published.
+            Includes the instance correlation_id and any correlation_ids used in publish().
+
+        Example:
+            >>> bus = PubSub(correlation_id="instance-id")
+            >>> bus.publish("topic", {}, correlation_id="custom-1")
+            >>> bus.correlation_ids
+            {'instance-id', 'custom-1'}
+        """
+        return self._correlation_ids.copy()
+
+    @property
+    def is_shutdown(self) -> bool:
+        """Check if the PubSub instance has been shutdown.
+
+        Returns:
+            True if shutdown() has been called, False otherwise
+
+        Example:
+            >>> bus = PubSub()
+            >>> bus.is_shutdown
+            False
+            >>> bus.shutdown()
+            >>> bus.is_shutdown
+            True
+        """
+        return self._is_shutdown
+
+    @property
+    def subscribers(self) -> dict[Topic, list[_SubscriberEntry]]:
+        """Get all topic-based subscribers.
+
+        Returns:
+            A copy of the subscribers dictionary, keyed by topic.
+            Note: Returns internal _SubscriberEntry objects for inspection only.
+
+        Example:
+            >>> bus = PubSub()
+            >>> bus.subscribe("topic", callback)
+            '...'
+            >>> len(bus.subscribers.get("topic", []))
+            1
+            >>> "topic" in bus.subscribers
+            True
+        """
+        return self._subscribers.copy()
+
+    @property
+    def wildcard_subscribers(self) -> list[_SubscriberEntry]:
+        """Get all wildcard topic subscribers (topic="*").
+
+        Returns:
+            A copy of the list of wildcard subscribers.
+            Note: Returns internal _SubscriberEntry objects for inspection only.
+
+        Example:
+            >>> bus = PubSub()
+            >>> bus.subscribe("*", callback)
+            '...'
+            >>> len(bus.wildcard_subscribers)
+            1
+        """
+        return self._wildcard_subscribers.copy()

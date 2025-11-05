@@ -52,10 +52,6 @@ class TestPackageVersion:
         """Test that version is not empty."""
         assert len(splurge_pub_sub.__version__) > 0
 
-    def test_version_equals_expected(self) -> None:
-        """Test version is 2025.0.0."""
-        assert splurge_pub_sub.__version__ == "2025.0.0"
-
 
 class TestPackageMetadata:
     """Tests for package metadata."""

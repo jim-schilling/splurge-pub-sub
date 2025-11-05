@@ -71,8 +71,8 @@ class TestDecoratorBasics:
         bus.on("topic2")(handler_2)
 
         # Both should be registered
-        assert "topic1" in bus._subscribers
-        assert "topic2" in bus._subscribers
+        assert "topic1" in bus.subscribers
+        assert "topic2" in bus.subscribers
 
 
 class TestDecoratorSubscription:
@@ -87,8 +87,8 @@ class TestDecoratorSubscription:
             pass
 
         # Should be registered
-        assert "user.created" in bus._subscribers
-        assert len(bus._subscribers["user.created"]) == 1
+        assert "user.created" in bus.subscribers
+        assert len(bus.subscribers["user.created"]) == 1
 
     def test_decorator_multiple_subscribers_same_topic(self) -> None:
         """Test decorating multiple handlers for same topic."""
@@ -106,7 +106,7 @@ class TestDecoratorSubscription:
         def handler_3(msg: Message) -> None:
             pass
 
-        assert len(bus._subscribers["event"]) == 3
+        assert len(bus.subscribers["event"]) == 3
 
     def test_decorator_with_topic_containing_dots(self) -> None:
         """Test decorator with multi-level topics."""
@@ -116,7 +116,7 @@ class TestDecoratorSubscription:
         def handle(msg: Message) -> None:
             pass
 
-        assert "user.account.created" in bus._subscribers
+        assert "user.account.created" in bus.subscribers
 
     def test_decorator_generates_unique_subscriber_ids(self) -> None:
         """Test that decorated subscribers get unique IDs."""
@@ -130,7 +130,7 @@ class TestDecoratorSubscription:
         def handler_2(msg: Message) -> None:
             pass
 
-        ids = [entry.subscriber_id for entry in bus._subscribers["topic"]]
+        ids = [entry.subscriber_id for entry in bus.subscribers["topic"]]
 
         # Should have two unique IDs
         assert len(ids) == 2
@@ -301,7 +301,7 @@ class TestDecoratorChaining:
             pass
 
         # Should be registered
-        assert "topic" in bus._subscribers
+        assert "topic" in bus.subscribers
 
     def test_multiple_topic_registrations_not_supported_directly(self) -> None:
         """Test that one decorator registers to one topic only."""
@@ -312,8 +312,8 @@ class TestDecoratorChaining:
             pass
 
         # Only topic1 should have subscriber
-        assert len(bus._subscribers.get("topic1", [])) == 1
-        assert len(bus._subscribers.get("topic2", [])) == 0
+        assert len(bus.subscribers.get("topic1", [])) == 1
+        assert len(bus.subscribers.get("topic2", [])) == 0
 
     def test_function_decoratable_multiple_times_manually(self) -> None:
         """Test that same function can be decorated for multiple topics."""
@@ -326,8 +326,8 @@ class TestDecoratorChaining:
         bus.on("topic1")(shared_handler)
         bus.on("topic2")(shared_handler)
 
-        assert len(bus._subscribers["topic1"]) == 1
-        assert len(bus._subscribers["topic2"]) == 1
+        assert len(bus.subscribers["topic1"]) == 1
+        assert len(bus.subscribers["topic2"]) == 1
 
 
 class TestDecoratorExceptionHandling:

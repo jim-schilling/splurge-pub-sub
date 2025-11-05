@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 [![CI](https://github.com/jim-schilling/splurge-pub-sub/actions/workflows/ci-quick-test.yml/badge.svg)](https://github.com/jim-schilling/splurge-pub-sub/actions/workflows/ci-quick-test.yml)
-[![Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen.svg)](https://github.com/jim-schilling/splurge-pub-sub)
+[![Coverage](https://img.shields.io/badge/coverage-94%25-brightgreen.svg)](https://github.com/jim-schilling/splurge-pub-sub)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![mypy](https://img.shields.io/badge/mypy-checked-black)](https://mypy-lang.org/)
 
@@ -19,9 +19,10 @@ A lightweight, thread-safe publish-subscribe framework for Python applications. 
 - **Simple API**: Subscribe, publish, unsubscribe with intuitive methods
 - **Decorator Syntax**: `@bus.on("topic")` for simplified subscriptions
 - **Topic Filtering**: Wildcard pattern matching for selective message delivery
+- **Correlation IDs**: Cross-library event tracking and coordination
 - **Error Handling**: Custom error handlers for failed callbacks
 - **Context Manager**: Automatic resource cleanup with `with` statement
-- **95% Coverage**: Comprehensive test coverage across all features
+- **94% Coverage**: Comprehensive test coverage across all features
 
 ## Quick Start
 
@@ -78,6 +79,25 @@ pattern.matches("order.created")  # False
 pattern = TopicPattern("user.?.created")
 pattern.matches("user.a.created")  # True
 pattern.matches("user.ab.created")  # False
+```
+
+### Correlation ID for Cross-Library Coordination
+
+```python
+# Multiple libraries using same correlation_id
+correlation_id = "workflow-123"
+
+dsv_bus = PubSub(correlation_id=correlation_id)
+tabular_bus = PubSub(correlation_id=correlation_id)
+
+# Monitor all events with same correlation_id
+monitor_bus = PubSub()
+monitor_bus.subscribe("*", lambda m: print(f"[{m.correlation_id}] {m.topic}"), 
+                      correlation_id=correlation_id)
+
+dsv_bus.publish("dsv.file.loaded", {"file": "data.csv"})
+tabular_bus.publish("tabular.table.created", {"rows": 100})
+# Both messages received by monitor
 ```
 
 ### Error Handling

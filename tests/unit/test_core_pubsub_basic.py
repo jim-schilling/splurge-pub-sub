@@ -52,7 +52,7 @@ class TestInitialization:
     def test_init_sets_shutdown_false(self) -> None:
         """Test that shutdown flag is initialized to False."""
         bus = PubSub()
-        assert bus._is_shutdown is False
+        assert bus.is_shutdown is False
 
 
 # ============================================================================
@@ -492,9 +492,9 @@ class TestShutdown:
 
     def test_shutdown_sets_flag(self, pubsub: PubSub) -> None:
         """Test that shutdown sets the shutdown flag."""
-        assert pubsub._is_shutdown is False
+        assert pubsub.is_shutdown is False
         pubsub.shutdown()
-        assert pubsub._is_shutdown is True
+        assert pubsub.is_shutdown is True
 
     def test_subscribe_after_shutdown_raises_error(
         self,
