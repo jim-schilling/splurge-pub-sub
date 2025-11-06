@@ -53,7 +53,7 @@ from .message import Message
 from .pubsub import PubSub
 from .types import Callback, MessageData, SubscriberId, Topic
 
-__version__ = "2025.1.0"
+__version__ = "2025.1.1"
 __author__ = "Jim Schilling"
 __license__ = "MIT"
 

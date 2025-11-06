@@ -11,10 +11,9 @@ Domains:
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
 
 from .exceptions import SplurgePubSubTypeError, SplurgePubSubValueError
-from .types import MessageData, Topic
+from .types import MessageData, Metadata, Topic
 
 DOMAINS = ["pubsub", "message"]
 
@@ -27,7 +26,7 @@ class Message:
 
     Messages represent events published to topics. Each message contains:
     - A topic (routing key)
-    - Data payload (dict[str, Any])
+    - Data payload (dict[str, Any], defaults to empty dict if not provided)
     - Correlation ID (optional, for cross-library event tracking)
     - Auto-generated timestamp
     - Metadata dict (defaults to empty dict if not provided)
@@ -37,7 +36,7 @@ class Message:
 
     Attributes:
         topic: Topic identifier (uses dot notation, e.g., "user.created")
-        data: Message payload (dict[str, Any])
+        data: Message payload (dict[str, Any], defaults to empty dict if not provided)
         correlation_id: Optional correlation ID for event tracking (defaults to None)
         timestamp: Auto-generated UTC timestamp of message creation
         metadata: Dictionary for additional context (defaults to empty dict)
@@ -56,13 +55,16 @@ class Message:
         {}
         >>> isinstance(msg.timestamp, datetime)
         True
+        >>> msg_signal = Message(topic="signal.event")
+        >>> msg_signal.data
+        {}
     """
 
     topic: Topic
     """Topic identifier for message routing."""
 
-    data: MessageData
-    """Message payload (can be any type)."""
+    data: MessageData = field(default_factory=dict)
+    """Message payload (defaults to empty dict if not provided)."""
 
     correlation_id: str | None = None
     """Optional correlation ID for cross-library event tracking (defaults to None)."""
@@ -70,7 +72,7 @@ class Message:
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     """UTC timestamp of message creation (auto-generated if not provided)."""
 
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: Metadata = field(default_factory=dict)
     """Metadata dictionary for additional context (defaults to empty dict)."""
 
     def __post_init__(self) -> None:

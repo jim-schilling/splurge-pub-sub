@@ -218,7 +218,7 @@ Messages are immutable frozen dataclasses with the following attributes:
 
 ```python
 msg.topic        # str - Topic identifier
-msg.data         # dict[str, Any] - Message payload (dictionary with string keys)
+msg.data         # dict[str, Any] - Message payload (defaults to empty dict if not provided)
 msg.timestamp    # datetime - UTC timestamp (auto-generated)
 msg.metadata     # dict[str, Any] - Metadata dictionary (defaults to empty dict)
 ```
@@ -250,9 +250,15 @@ bus.publish("event", 123)                   # ✗ Integer instead of dict
 bus.publish("event", ["a", "b"])            # ✗ List instead of dict
 bus.publish("event", {1: "one", 2: "two"}) # ✗ Non-string keys
 
-# Valid examples with optional parameters:
-bus.publish("event")                        # ✓ No data or metadata (both default to {})
+# Valid examples with optional data and metadata:
+bus.publish("event")                        # ✓ Empty data and metadata (both default to {})
 bus.publish("event", metadata={"source": "api"})  # ✓ Only metadata, data defaults to {}
+bus.publish("event", {"key": "value"})      # ✓ Only data, metadata defaults to {}
+
+# Create message directly with optional data:
+msg1 = Message(topic="signal.event")        # data defaults to {}
+msg2 = Message(topic="data.event", data={"id": 123})
+msg3 = Message(topic="tracked.event", data={"id": 456}, metadata={"request_id": "req-789"})
 ```
 
 ### Multiple Subscribers
@@ -661,7 +667,7 @@ class RequestReply:
         self.bus.subscribe("*.reply", self._handle_reply)
 
     def _handle_reply(self, msg: Message) -> None:
-        # Metadata is always a dict (never None), no None checks needed!
+        # Metadata is always a dict (never None)
         request_id = msg.metadata.get("request_id")
         if request_id:
             self.responses[request_id] = msg.data
@@ -695,7 +701,7 @@ def handle_calculate(msg: Message) -> None:
     a = msg.data["a"]
     b = msg.data["b"]
     result = a + b
-    # Metadata is always a dict, so no None checks needed
+    # Metadata is always a dict, no None checks needed
     reply_topic = msg.metadata.get("reply_topic")
     request_id = msg.metadata.get("request_id")
     
