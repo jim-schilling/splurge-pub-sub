@@ -299,8 +299,8 @@ class PubSub:
 
         Args:
             topic: Topic identifier (uses dot notation, e.g., "user.created")
-            data: Message payload (dict[str, Any] with string keys only). Defaults to empty dict.
-            metadata: Optional metadata dictionary for message context. Defaults to empty dict.
+            data: Message payload (dict[str, Any] with string keys only). Defaults to empty dict if None.
+            metadata: Optional metadata dictionary for message context. Defaults to empty dict if None.
             correlation_id: Optional correlation ID override. If None or '', uses self._correlation_id.
                            If '*', raises error. Otherwise must match pattern [a-zA-Z0-9][a-zA-Z0-9\\.-_]*
                            (1-64 chars) with no consecutive '.', '-', or '_' characters.
@@ -317,6 +317,7 @@ class PubSub:
             >>> bus.publish("order.created", {"order_id": 42, "total": 99.99})
             >>> bus.publish("order.created", {"order_id": 42}, metadata={"source": "api"})
             >>> bus.publish("order.created", correlation_id="custom-id")
+            >>> bus.publish("order.created")  # Empty data and metadata
         """
         # Validate input
         if not topic or not isinstance(topic, str):

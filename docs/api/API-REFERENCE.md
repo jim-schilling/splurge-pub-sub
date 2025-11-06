@@ -347,7 +347,8 @@ class Message:
 
     Args:
         topic: Topic identifier (uses dot notation, e.g., "user.created")
-        data: Message payload as dict[str, Any]. Must be a dictionary with string keys only.
+        data: Message payload as dict[str, Any]. Defaults to empty dict if not provided.
+              Must be a dictionary with string keys only.
         correlation_id: Optional correlation ID for cross-library event tracking (defaults to None)
         timestamp: Auto-generated UTC timestamp (optional)
         metadata: Metadata dictionary (defaults to empty dict if not provided)
@@ -363,6 +364,11 @@ class Message:
         >>> msg.data
         {'id': 123, 'name': 'Alice'}
 
+        >>> # Signal event with no data (data defaults to {})
+        >>> msg_signal = Message(topic="signal.event")
+        >>> msg_signal.data
+        {}
+
         >>> # Invalid: non-dict payload raises error
         >>> msg = Message(topic="event", data="string_not_allowed")
         SplurgePubSubTypeError: Message data must be dict[str, Any], got: str
@@ -373,7 +379,7 @@ class Message:
     """
 
     topic: Topic
-    data: MessageData
+    data: MessageData = field(default_factory=dict)
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: dict[str, Any] = field(default_factory=dict)
 ```
@@ -381,7 +387,7 @@ class Message:
 #### Attributes
 
 - `topic: str` - Topic identifier for message routing
-- `data: dict[str, Any]` - Message payload (dictionary with string keys only)
+- `data: dict[str, Any]` - Message payload (dictionary with string keys only, defaults to empty dict if not provided)
 - `correlation_id: str | None` - Optional correlation ID for cross-library event tracking (defaults to None)
 - `timestamp: datetime` - UTC timestamp of message creation (auto-generated)
 - `metadata: dict[str, Any]` - Metadata dictionary (defaults to empty dict if not provided)
@@ -417,8 +423,11 @@ def __post_init__(self) -> None:
 from splurge_pub_sub import Message
 from datetime import datetime, timezone
 
-# Create message with auto-timestamp
+# Create message with auto-timestamp and optional data
 msg1 = Message(topic="user.created", data={"id": 123})
+
+# Create signal message with no data (data defaults to {})
+msg_signal = Message(topic="signal.event")
 
 # Create message with custom timestamp
 custom_time = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -440,6 +449,11 @@ print(msg1.topic)       # "user.created"
 print(msg1.data)        # {"id": 123}
 print(msg1.timestamp)   # datetime object
 print(msg1.metadata)    # {}
+
+# Access signal message properties
+print(msg_signal.topic) # "signal.event"
+print(msg_signal.data)  # {}
+print(msg_signal.metadata)  # {}
 ```
 
 ### TopicPattern
