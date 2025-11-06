@@ -1,5 +1,18 @@
 # Changelog
 
+### [2025.2.0] - 2025-11-06
+
+#### Changed
+- **Version Bump**: Updated version to 2025.2.0 for patch release in `pyproject.toml` and `__init__.py`
+- Consolidated `correlation_id` generation and validation checks from `pubsub.py` and `message.py` into `utility.py` for shared use
+  - New functions:
+    - `is_valid_correlation_id(correlation_id: str) -> bool`
+    - `validate_correlation_id(correlation_id: str) -> None`
+    - `generate_correlation_id() -> str`
+    - Updated all relevant code and tests to use new validation functions from `utility.py` instead of duplicating logic
+- Changed allowable pattern for `correlation_id` to `[a-zA-Z0-9][a-zA-Z0-9\.-_]*[a-zA-Z0-9]` (to require starting and ending with alphanumeric character)
+  - Updated validation logic and tests to reflect new pattern requirement
+
 ### [2025.1.0] - 2025-11-05
 
 #### Added

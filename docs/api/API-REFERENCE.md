@@ -34,7 +34,7 @@ class PubSub:
                           Defaults to logging errors. Must be passed as a keyword
                           argument.
             correlation_id: Optional correlation ID. If None or '', auto-generates.
-                           Must match pattern [a-zA-Z0-9][a-zA-Z0-9\\.-_]* (1-64 chars)
+                           Must match pattern [a-zA-Z0-9][a-zA-Z0-9\.-_]*[a-zA-Z0-9] (2-64 chars)
                            with no consecutive '.', '-', or '_' characters.
                            Must be passed as a keyword argument.
 
@@ -68,7 +68,7 @@ def subscribe(
         callback: Callable that accepts a Message and returns None
         correlation_id: Optional filter. If None or '', uses instance correlation_id.
                        If '*', matches any correlation_id. Otherwise must match pattern
-                       [a-zA-Z0-9][a-zA-Z0-9\\.-_]* (1-64 chars) with no consecutive '.', '-', or '_'.
+                       [a-zA-Z0-9][a-zA-Z0-9\.-_]*[a-zA-Z0-9] (2-64 chars) with no consecutive '.', '-', or '_'.
                        Must be passed as a keyword argument.
 
     Returns:
@@ -965,6 +965,131 @@ bus = PubSub(error_handler=default_error_handler)
 
 # Or rely on it being the default
 bus = PubSub()  # Uses default_error_handler automatically
+```
+
+### generate_correlation_id
+
+```python
+def generate_correlation_id() -> str:
+    """Generate a pattern-compliant, unique correlation ID.
+
+    Returns:
+        A UUID string that matches the correlation ID pattern.
+        Format: [a-zA-Z0-9][a-zA-Z0-9\.-_]*[a-zA-Z0-9] (2-64 chars)
+
+    Example:
+        >>> correlation_id = generate_correlation_id()
+        >>> len(correlation_id)
+        36
+        >>> correlation_id.startswith('') or correlation_id.startswith('')  # alphanumeric
+        True
+    """
+```
+
+Generates a unique, pattern-compliant correlation ID for cross-library event tracking and coordination.
+
+**Usage**:
+```python
+from splurge_pub_sub import generate_correlation_id, PubSub
+
+# Generate unique correlation ID
+correlation_id = generate_correlation_id()
+
+# Use with PubSub instance
+bus = PubSub(correlation_id=correlation_id)
+
+# Or pass to publish
+bus.publish("topic", {"data": "value"}, correlation_id=correlation_id)
+```
+
+### validate_correlation_id
+
+```python
+def validate_correlation_id(correlation_id: str) -> None:
+    """Validate the format of a correlation ID.
+
+    Args:
+        correlation_id: The correlation ID to validate.
+
+    Raises:
+        SplurgePubSubValueError: If the correlation ID is not pattern-compliant.
+            - Empty string raises: "correlation_id cannot be empty string, use None instead"
+            - Wildcard '*' raises: "correlation_id cannot be '*' (wildcard), must be a specific value"
+            - Invalid length raises: "correlation_id length must be 1-64 chars, got X"
+            - Invalid pattern raises: "correlation_id must match pattern [a-zA-Z0-9][a-zA-Z0-9\.-_]*[a-zA-Z0-9] (2-64 chars), got: ..."
+            - Consecutive separators raise: "correlation_id cannot contain consecutive separator characters ('.', '-', '_'), got: ..."
+
+    Pattern Requirements:
+        - Format: [a-zA-Z0-9][a-zA-Z0-9\.-_]*[a-zA-Z0-9] (2-64 chars)
+        - Must start with alphanumeric character
+        - Must end with alphanumeric character
+        - Middle characters can be alphanumeric, dots, hyphens, or underscores
+        - Cannot have consecutive separator characters (., -, _)
+        - Cannot be empty string or wildcard '*'
+
+    Example:
+        >>> from splurge_pub_sub import validate_correlation_id
+        >>> validate_correlation_id("workflow-abc-123")  # Valid
+        >>> validate_correlation_id("request.id.12345")  # Valid
+        >>> validate_correlation_id("-invalid")  # Raises SplurgePubSubValueError
+        >>> validate_correlation_id("invalid-")  # Raises SplurgePubSubValueError
+    """
+```
+
+Validates that a correlation ID matches the required pattern for the framework.
+
+**Valid Examples**:
+```python
+validate_correlation_id("workflow-abc-123")      # Valid
+validate_correlation_id("request.id.12345")      # Valid
+validate_correlation_id("a1b2c3")                # Valid (short but valid)
+validate_correlation_id("correlation_id_xyz")    # Valid
+```
+
+**Invalid Examples**:
+```python
+validate_correlation_id("")                      # Raises - empty string
+validate_correlation_id("*")                     # Raises - wildcard
+validate_correlation_id("-invalid")              # Raises - starts with separator
+validate_correlation_id("invalid-")              # Raises - ends with separator
+validate_correlation_id("invalid..name")         # Raises - consecutive separators
+validate_correlation_id("invalid--name")         # Raises - consecutive separators
+validate_correlation_id("a")                     # Raises - too short (min 2 chars)
+```
+
+### is_valid_correlation_id
+
+```python
+def is_valid_correlation_id(correlation_id: str) -> bool:
+    """Check if a correlation ID is valid without raising exceptions.
+
+    Args:
+        correlation_id: The correlation ID to check.
+
+    Returns:
+        True if valid, False otherwise.
+
+    Example:
+        >>> from splurge_pub_sub import is_valid_correlation_id
+        >>> is_valid_correlation_id("workflow-abc-123")
+        True
+        >>> is_valid_correlation_id("-invalid")
+        False
+        >>> is_valid_correlation_id("")
+        False
+    """
+```
+
+Safe validation function that returns a boolean instead of raising exceptions.
+
+**Usage**:
+```python
+from splurge_pub_sub import is_valid_correlation_id
+
+if is_valid_correlation_id(user_input):
+    bus = PubSub(correlation_id=user_input)
+else:
+    print("Invalid correlation ID format")
 ```
 
 ## Examples

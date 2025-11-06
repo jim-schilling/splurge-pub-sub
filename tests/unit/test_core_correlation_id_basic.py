@@ -13,6 +13,7 @@ Test Cases:
 import pytest
 
 from splurge_pub_sub import Message, PubSub, SplurgePubSubValueError
+from splurge_pub_sub.utility import is_valid_correlation_id, validate_correlation_id
 
 
 class TestCorrelationIdConstructor:
@@ -364,3 +365,60 @@ class TestCorrelationIdMatching:
         assert len(received) == 1
         assert received[0].correlation_id == "id-a"
         assert received[0].topic == "topic.a"
+
+class TestCorrelationIdValidation:
+    """Tests for correlation_id validation utility."""
+
+    def test_validate_valid_correlation_id(self) -> None:
+        """Test that valid correlation_id passes validation."""
+        valid_ids = [
+            "abc123",
+            "A1.b-C_d",
+            "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWX.Y-Z",
+            "a1",
+            "Z9",
+        ]
+        for cid in valid_ids:
+            # Should not raise
+            validate_correlation_id(cid)
+            assert is_valid_correlation_id(cid) is True
+
+    def test_validate_invalid_correlation_id_empty_string(self) -> None:
+        """Test that empty string correlation_id raises error."""
+        with pytest.raises(SplurgePubSubValueError, match="empty string"):
+            validate_correlation_id("")
+
+    def test_validate_invalid_correlation_id_wildcard(self) -> None:
+        """Test that wildcard '*' correlation_id raises error."""
+        with pytest.raises(SplurgePubSubValueError, match="\\*"):
+            validate_correlation_id("*")
+
+    def test_validate_invalid_correlation_id_too_short(self) -> None:
+        """Test that too short correlation_id raises error."""
+        with pytest.raises(SplurgePubSubValueError, match="length"):
+            validate_correlation_id("a")
+
+    def test_validate_invalid_correlation_id_too_long(self) -> None:
+        """Test that too long correlation_id raises error."""
+        long_id = "a" * 65
+        with pytest.raises(SplurgePubSubValueError, match="length"):
+            validate_correlation_id(long_id)
+
+    def test_validate_invalid_correlation_id_pattern(self) -> None:
+        """Test that invalid pattern correlation_id raises error."""
+        invalid_ids = [
+            "-startsWithDash",
+            ".startsWithDot",
+            "_startsWithUnderscore",
+            "endsWithDash-",
+            "endsWithDot.",
+            "endsWithUnderscore_",
+            "consecutive..dots",
+            "consecutive--dashes",
+            "consecutive__underscores",
+            "mixed.-separators",
+        ]
+        for cid in invalid_ids:
+            with pytest.raises(SplurgePubSubValueError, match="pattern|consecutive"):
+                validate_correlation_id(cid)
+            assert is_valid_correlation_id(cid) is False

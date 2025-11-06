@@ -20,11 +20,11 @@ from splurge_pub_sub import Message, PubSub, SplurgePubSubRuntimeError, SplurgeP
 class TestCorrelationIdBoundaryConditions:
     """Tests for correlation_id boundary conditions."""
 
-    def test_correlation_id_exactly_one_char(self) -> None:
-        """Test correlation_id with exactly 1 character (minimum boundary)."""
-        bus = PubSub(correlation_id="a")
-        assert bus.correlation_id == "a"
-        assert len(bus.correlation_id) == 1
+    def test_correlation_id_exactly_two_chars(self) -> None:
+        """Test correlation_id with exactly 2 character (minimum boundary)."""
+        bus = PubSub(correlation_id="ab")
+        assert bus.correlation_id == "ab"
+        assert len(bus.correlation_id) == 2
 
     def test_correlation_id_exactly_64_chars(self) -> None:
         """Test correlation_id with exactly 64 characters (maximum boundary)."""
@@ -39,19 +39,19 @@ class TestCorrelationIdBoundaryConditions:
         with pytest.raises(SplurgePubSubValueError, match="length"):
             PubSub(correlation_id=long_id)
 
-    def test_correlation_id_exactly_one_char_in_publish(self) -> None:
-        """Test publishing with exactly 1 character correlation_id."""
+    def test_correlation_id_exactly_two_chars_in_publish(self) -> None:
+        """Test publishing with exactly 2 character correlation_id."""
         bus = PubSub()
         received: list[Message] = []
 
         def callback(msg: Message) -> None:
             received.append(msg)
 
-        bus.subscribe("test.topic", callback, correlation_id="x")
-        bus.publish("test.topic", {}, correlation_id="x")
+        bus.subscribe("test.topic", callback, correlation_id="xy")
+        bus.publish("test.topic", {}, correlation_id="xy")
 
         assert len(received) == 1
-        assert received[0].correlation_id == "x"
+        assert received[0].correlation_id == "xy"
 
     def test_correlation_id_exactly_64_chars_in_publish(self) -> None:
         """Test publishing with exactly 64 character correlation_id."""
@@ -68,11 +68,11 @@ class TestCorrelationIdBoundaryConditions:
         assert len(received) == 1
         assert received[0].correlation_id == long_id
 
-    def test_message_correlation_id_exactly_one_char(self) -> None:
-        """Test Message with exactly 1 character correlation_id."""
-        msg = Message(topic="test", data={}, correlation_id="x")
-        assert msg.correlation_id == "x"
-        assert len(msg.correlation_id) == 1
+    def test_message_correlation_id_exactly_two_chars(self) -> None:
+        """Test Message with exactly 2 character correlation_id."""
+        msg = Message(topic="test", data={}, correlation_id="xy")
+        assert msg.correlation_id == "xy"
+        assert len(msg.correlation_id) == 2
 
     def test_message_correlation_id_exactly_64_chars(self) -> None:
         """Test Message with exactly 64 character correlation_id."""
