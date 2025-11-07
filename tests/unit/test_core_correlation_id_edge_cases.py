@@ -250,6 +250,9 @@ class TestCorrelationIdThreadSafety:
         for t in threads:
             t.join()
 
+        # Wait for all async messages to be processed
+        bus.drain()
+
         # Should receive all messages (5 threads * 10 publishes = 50)
         assert received_count["count"] == num_threads * 10
 
