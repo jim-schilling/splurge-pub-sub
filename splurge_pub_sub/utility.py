@@ -32,9 +32,7 @@ def validate_correlation_id(correlation_id: str) -> None:
 
     # Validate pattern: [a-zA-Z0-9][a-zA-Z0-9\.-_]*[a-zA-Z0-9] (2-64 chars)
     if not (2 <= len(correlation_id) <= 64):
-        raise SplurgePubSubValueError(
-            f"correlation_id length must be 1-64 chars, got {len(correlation_id)}"
-        )
+        raise SplurgePubSubValueError(f"correlation_id length must be 1-64 chars, got {len(correlation_id)}")
 
     if not re.match(CORRELATION_ID_PATTERN, correlation_id):
         raise SplurgePubSubValueError(
@@ -48,14 +46,14 @@ def validate_correlation_id(correlation_id: str) -> None:
             raise SplurgePubSubValueError(
                 f"correlation_id cannot contain consecutive separator characters ('.', '-', '_'), got: {correlation_id!r}"
             )
-    
+
 
 def is_valid_correlation_id(correlation_id: str) -> bool:
     """Check if a correlation ID is valid.
 
     Args:
         correlation_id: The correlation ID to check.
-    
+
     Returns:
         True if valid, False otherwise.
     """
@@ -64,4 +62,3 @@ def is_valid_correlation_id(correlation_id: str) -> bool:
         return True
     except SplurgePubSubValueError:
         return False
-    

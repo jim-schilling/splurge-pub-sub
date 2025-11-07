@@ -49,6 +49,7 @@ def example_1_basic_pubsub() -> None:
     # Publish a message
     print("\n3. Publishing message to 'user.created'")
     bus.publish("user.created", {"id": 123, "name": "Alice", "email": "alice@example.com"})
+    bus.drain()  # Wait for message delivery
 
     # Unsubscribe
     print("\n4. Unsubscribing from topic")
@@ -95,6 +96,7 @@ def example_2_multiple_subscribers() -> None:
     # Publish a message
     print("\n2. Publishing 'order.created' message")
     bus.publish("order.created", {"order_id": "ORD-001", "total": 99.99})
+    bus.drain()  # Wait for message delivery
 
     print("\n3. All callbacks invoked in order (fan-out pattern)")
 
@@ -136,6 +138,7 @@ def example_3_decorator_api() -> None:
     bus.publish("user.created", {"id": 1, "name": "Alice"})
     bus.publish("user.updated", {"id": 1, "name": "Alice Smith"})
     bus.publish("user.deleted", {"id": 1})
+    bus.drain()  # Wait for all messages to be delivered
 
     print("\n3. All decorated callbacks invoked")
 
@@ -166,6 +169,7 @@ def example_4_message_structure() -> None:
     # Simple message
     print("\n   a) Simple message (auto-generated timestamp):")
     bus.publish("demo", {"action": "simple"})
+    bus.drain()
 
     # Message with custom timestamp
     print("\n   b) Message with custom timestamp:")
@@ -177,6 +181,7 @@ def example_4_message_structure() -> None:
 
     bus.subscribe("demo", show_custom_message)
     bus.publish("demo", {"action": "custom_time"})
+    bus.drain()
 
     # Message with metadata
     print("\n   c) Message with metadata:")
@@ -191,6 +196,7 @@ def example_4_message_structure() -> None:
 
     bus.subscribe("demo", show_metadata)
     bus.publish("demo", {"action": "with_metadata"})
+    bus.drain()
 
 
 def example_5_topic_patterns() -> None:
@@ -276,6 +282,7 @@ def example_7_correlation_id() -> None:
     dsv_bus.publish("dsv.file.loaded", {"file": "data.csv"})
     tabular_bus.publish("tabular.table.created", {"rows": 100})
     typer_bus.publish("typer.command.executed", {"command": "process"})
+    monitor_bus.drain()  # Wait for all messages to be delivered
 
     print(f"\n4. Total events received: {len(received_events)}")
     print("   All events have matching correlation_id")
@@ -303,6 +310,7 @@ def example_7_correlation_id() -> None:
     filter_bus.publish("test.topic", {"id": "1"}, correlation_id="id-a")
     filter_bus.publish("test.topic", {"id": "2"}, correlation_id="id-b")
     filter_bus.publish("test.topic", {"id": "3"}, correlation_id="id-c")
+    filter_bus.drain()  # Wait for all messages to be delivered
 
     print(f"   Handler A (id-a): {received_a}")  # ['1']
     print(f"   Handler B (id-b): {received_b}")  # ['2']
@@ -343,6 +351,7 @@ def example_6_error_handling() -> None:
 
     print("\n3. Publishing to topic (error handler manages exceptions)")
     bus.publish("risky.operation", {"task": "risky"})
+    bus.drain()  # Wait for message delivery
 
     print("\n4. Error isolation: safe callback still ran despite exception in risky callback")
 
@@ -384,6 +393,7 @@ def example_8_context_manager() -> None:
 
         print("   ├─ Publishing message")
         bus.publish("event", {"data": "test"})
+        bus.drain()  # Wait for message delivery
 
         print("   └─ Exiting context...")
 
@@ -423,6 +433,7 @@ def example_9_clear_operations() -> None:
     bus.publish("topic.a", {})
     bus.publish("topic.b", {})
     bus.publish("topic.c", {})
+    bus.drain()  # Wait for all messages to be delivered
 
     print("\n3. Clearing topic.b subscribers")
     bus.clear("topic.b")
@@ -432,6 +443,7 @@ def example_9_clear_operations() -> None:
     bus.publish("topic.a", {"msg": "from a"})
     bus.publish("topic.b", {"msg": "from b"})
     bus.publish("topic.c", {"msg": "from c"})
+    bus.drain()  # Wait for all messages to be delivered
 
     print("\n5. Clearing all subscribers")
     bus.clear()
@@ -504,6 +516,7 @@ def example_10_real_world_scenario() -> None:
             "total": 99.99,
         },
     )
+    bus.drain()  # Wait for order.placed handlers
 
     print("\n3. Payment fails")
     bus.publish(
@@ -513,6 +526,7 @@ def example_10_real_world_scenario() -> None:
             "reason": "Insufficient funds",
         },
     )
+    bus.drain()  # Wait for payment.failed handlers
 
     print("\n4. Order ships")
     bus.publish(
@@ -522,6 +536,7 @@ def example_10_real_world_scenario() -> None:
             "tracking": "TRACK-2025-12345",
         },
     )
+    bus.drain()  # Wait for order.shipped handlers
 
 
 def main() -> None:

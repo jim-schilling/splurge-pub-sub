@@ -102,23 +102,34 @@ def publish(
     topic: str,
     data: MessageData | None = None,
     metadata: Metadata | None = None,
+    *,
+    correlation_id: str | None = None,
 ) -> None:
     """Publish a message to a topic.
 
+    Messages are enqueued and dispatched asynchronously by a background worker thread.
+    This method returns immediately after enqueueing, ensuring publishers never block
+    on subscriber execution.
+
     All subscribers for the topic receive the message via their callbacks.
-    Callbacks are invoked synchronously in the order subscriptions were made.
+    Callbacks are invoked asynchronously in the order subscriptions were made.
 
     If a callback raises an exception, it is passed to the error handler.
     Exceptions in one callback do not affect other callbacks or the publisher.
 
     Args:
         topic: Topic identifier (uses dot notation, e.g., "user.created")
-        data: Message payload (dict[str, Any] with string keys only). Defaults to empty dict.
-        metadata: Optional metadata dictionary for message context. Defaults to empty dict.
+        data: Message payload (dict[str, Any] with string keys only). Defaults to empty dict if None.
+        metadata: Optional metadata dictionary for message context. Defaults to empty dict if None.
+        correlation_id: Optional correlation ID override. If None or '', uses self._correlation_id.
+                       If '*', raises error. Otherwise must match pattern [a-zA-Z0-9][a-zA-Z0-9\.-_]*[a-zA-Z0-9]
+                       (2-64 chars) with no consecutive '.', '-', or '_' characters.
+                       Must be passed as a keyword argument.
 
     Raises:
-        SplurgePubSubValueError: If topic is empty or not a string
-        SplurgePubSubTypeError: If data is not a dict[str, Any] or contains non-string keys
+        SplurgePubSubValueError: If topic is empty or not a string, or correlation_id is invalid
+        SplurgePubSubTypeError: If data is not a dict[str, Any] or has non-string keys
+        SplurgePubSubRuntimeError: If the bus is shutdown
 
     Example:
         >>> bus = PubSub()
@@ -126,7 +137,9 @@ def publish(
         '...'
         >>> bus.publish("order.created", {"order_id": 42, "total": 99.99})
         >>> bus.publish("order.created", {"order_id": 42}, metadata={"source": "api"})
+        >>> bus.publish("order.created", correlation_id="custom-id")
         >>> bus.publish("order.created")  # Empty data and metadata
+        >>> bus.drain()  # Wait for messages to be delivered
     """
 ```
 
@@ -134,6 +147,38 @@ def publish(
 - `"Topic must be a non-empty string, got: <value>"` - Empty or invalid topic
 - `"Message data must be dict[str, Any], got: <type>"` - Payload is not a dict
 - `"Message data keys must be strings, got key <key> of type <type>"` - Dict has non-string keys
+- `"Cannot publish: PubSub has been shutdown"` - Bus is shutdown
+
+##### drain
+
+```python
+def drain(self, timeout: int = 2000) -> bool:
+    """Wait for the message queue to be drained (empty).
+
+    Blocks until all queued messages have been processed by the worker thread,
+    or until the timeout expires.
+
+    Args:
+        timeout: Maximum time to wait in milliseconds. Defaults to 2000ms.
+
+    Returns:
+        True if queue was drained within timeout, False if timeout expired.
+
+    Example:
+        >>> bus = PubSub()
+        >>> bus.subscribe("topic", callback)
+        >>> bus.publish("topic", {"data": "test"})
+        >>> bus.drain()  # Wait for message to be delivered
+        True
+        >>> bus.drain(timeout=100)  # Wait up to 100ms
+    """
+```
+
+**Notes**:
+- Use `drain()` when you need to ensure messages have been delivered before proceeding
+- Returns `True` immediately if queue is already empty
+- Returns `True` if shutdown (queue should be empty)
+- Useful in tests or when you need synchronous-like behavior
 
 ##### unsubscribe
 

@@ -150,6 +150,7 @@ class TestDecoratorMessageDelivery:
             received_messages.append(msg)
 
         bus.publish("user.created", {"id": 123, "name": "Alice"})
+        bus.drain()
 
         assert len(received_messages) == 1
         assert received_messages[0].data == {"id": 123, "name": "Alice"}
@@ -166,6 +167,7 @@ class TestDecoratorMessageDelivery:
         bus.publish("event", {"id": 1})
         bus.publish("event", {"id": 2})
         bus.publish("event", {"id": 3})
+        bus.drain()
 
         assert len(received_messages) == 3
         assert [m["id"] for m in received_messages] == [1, 2, 3]
@@ -180,6 +182,7 @@ class TestDecoratorMessageDelivery:
             received.append(msg)
 
         bus.publish("user.updated", {"id": 123})
+        bus.drain()
 
         assert len(received) == 0
 
@@ -199,6 +202,7 @@ class TestDecoratorMessageDelivery:
             )
 
         bus.publish("test.topic", {"key": "value"})
+        bus.drain()
 
         assert len(captured) == 1
         assert captured[0]["topic"] == "test.topic"
@@ -221,6 +225,7 @@ class TestDecoratorMessageDelivery:
         }
 
         bus.publish("event", complex_data)
+        bus.drain()
 
         assert received_data[0] == complex_data
 
@@ -244,6 +249,7 @@ class TestDecoratorMultiple:
 
         bus.publish("topic1", {"from": "topic1"})
         bus.publish("topic2", {"from": "topic2"})
+        bus.drain()
 
         assert received_1 == [{"from": "topic1"}]
         assert received_2 == [{"from": "topic2"}]
@@ -279,6 +285,7 @@ class TestDecoratorMultiple:
             execution_order.append(3)
 
         bus.publish("event", {})
+        bus.drain()
 
         # Should execute in registration order
         assert execution_order == [1, 2, 3]
@@ -347,6 +354,7 @@ class TestDecoratorExceptionHandling:
             raise ValueError("handler failed")
 
         bus.publish("topic", {})
+        bus.drain()
 
         assert len(errors) == 1
         assert errors[0][0] == "ValueError"
@@ -366,6 +374,7 @@ class TestDecoratorExceptionHandling:
             results.append("executed")
 
         bus.publish("topic", {})
+        bus.drain()
 
         # Second handler should still execute
         assert "executed" in results
@@ -384,6 +393,7 @@ class TestDecoratorExceptionHandling:
             raise RuntimeError("operation failed")
 
         bus.publish("critical.operation", {})
+        bus.drain()
 
         assert len(log) == 1
         assert "critical.operation" in log[0]
@@ -404,6 +414,7 @@ class TestDecoratorWithShutdown:
                 received.append(msg.data)
 
             bus.publish("topic", {"id": 1})
+            bus.drain()
 
         # Handler should have received message before shutdown
         assert received == [{"id": 1}]
@@ -446,6 +457,8 @@ class TestDecoratorIntegration:
         test_data = {"id": 123}
         bus_1.publish("topic", test_data)
         bus_2.publish("topic", test_data)
+        bus_1.drain()
+        bus_2.drain()
 
         # Results should be same
         assert received_1 == received_2 == [test_data]
@@ -464,6 +477,7 @@ class TestDecoratorIntegration:
             results.append("decorated")
 
         bus.publish("event", {})
+        bus.drain()
 
         # Both should execute (manual first as it was registered first)
         assert results == ["manual", "decorated"]
@@ -489,6 +503,7 @@ class TestDecoratorIntegration:
         bus.publish("user.created", {"id": 1, "name": "Alice"})
         bus.publish("user.updated", {"id": 1, "name": "Alice Smith"})
         bus.publish("user.deleted", {"id": 1, "name": "Alice Smith"})
+        bus.drain()
 
         assert len(events) == 3
         assert events[0] == "User created: Alice"
