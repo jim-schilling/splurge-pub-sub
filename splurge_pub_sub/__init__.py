@@ -51,15 +51,17 @@ from .exceptions import (
 from .filters import TopicPattern
 from .message import Message
 from .pubsub import PubSub
+from .pubsub_aggregator import PubSubAggregator
 from .types import Callback, MessageData, SubscriberId, Topic
 from .utility import generate_correlation_id, is_valid_correlation_id, validate_correlation_id
 
-__version__ = "2025.3.0"
+__version__ = "2025.3.1"
 __author__ = "Jim Schilling"
 __license__ = "MIT"
 
 __all__ = [
     "PubSub",
+    "PubSubAggregator",
     "Message",
     "Callback",
     "MessageData",

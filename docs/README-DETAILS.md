@@ -55,6 +55,7 @@ Splurge Pub-Sub is a simple, Pythonic framework for implementing the publish-sub
 - **Decorator API**: Simplified `@bus.on()` syntax
 - **Error Handling**: Custom error handler callbacks
 - **Topic Filtering**: Wildcard pattern matching for topics
+- **PubSubAggregator**: Aggregate messages from multiple PubSub instances
 
 ## Installation & Setup
 
@@ -120,18 +121,19 @@ from splurge_pub_sub.core.errors import ErrorHandler, default_error_handler
 ```
 splurge_pub_sub/
 ├── core/
-│   ├── pubsub.py          # Main PubSub class
-│   ├── message.py         # Message data structure
-│   ├── types.py           # Type aliases
-│   ├── constants.py       # Module constants
-│   ├── exceptions.py      # Exception hierarchy
-│   ├── filters.py         # Topic pattern matching (Phase 2)
-│   ├── errors.py          # Error handler system (Phase 2)
-│   ├── decorators.py      # Decorator API (Phase 2)
-│   └── __init__.py        # Core module exports
-├── cli.py                 # Command-line interface
-├── __main__.py            # Module entry point
-└── __init__.py            # Public API exports
+│   ├── pubsub.py               # Main PubSub class
+│   ├── pubsub_aggregator.py    # PubSubAggregator class
+│   ├── message.py              # Message data structure
+│   ├── types.py                # Type aliases
+│   ├── constants.py            # Module constants
+│   ├── exceptions.py           # Exception hierarchy
+│   ├── filters.py              # Topic pattern matching (Phase 2)
+│   ├── errors.py               # Error handler system (Phase 2)
+│   ├── decorators.py           # Decorator API (Phase 2)
+│   └── __init__.py             # Core module exports
+├── cli.py                      # Command-line interface
+├── __main__.py                 # Module entry point
+└── __init__.py                 # Public API exports
 ```
 
 ## Phase 1: Core Pub-Sub
@@ -719,6 +721,109 @@ def handle_calculate(msg: Message) -> None:
 result = rr.request("calculate", {"a": 5, "b": 3}, timeout=2.0)
 print(result)  # {"result": 8}
 ```
+
+## PubSubAggregator - Aggregating Multiple PubSub Instances
+
+`PubSubAggregator` enables you to aggregate messages from multiple `PubSub` instances into a single unified subscriber interface. This is particularly useful when you have multiple packages or modules, each with their own `PubSub` instance, and you want a central component to receive events from all of them.
+
+### Basic Usage
+
+```python
+from splurge_pub_sub import PubSubAggregator, PubSub, Message
+
+# Create PubSub instances from different packages/modules
+pack_b_bus = PubSub()
+pack_c_bus = PubSub()
+
+# Create composite to aggregate messages from both
+aggregator = PubSubAggregator(pubsubs=[pack_b_bus, pack_c_bus])
+
+# Subscribe once to receive events from any managed PubSub
+def unified_handler(msg: Message) -> None:
+    print(f"Received from {msg.topic}: {msg.data}")
+
+# Use correlation_id="*" to receive all messages regardless of correlation_id
+aggregator.subscribe("user.created", unified_handler, correlation_id="*")
+
+# Publish from different PubSub instances
+pack_b_bus.publish("user.created", {"id": 1, "source": "pack-b"})
+pack_c_bus.publish("user.created", {"id": 2, "source": "pack-c"})
+
+# Drain all buses to ensure messages are forwarded and delivered
+pack_b_bus.drain()
+pack_c_bus.drain()
+aggregator.drain()
+```
+
+### Dynamic Management
+
+You can add and remove `PubSub` instances at runtime:
+
+```python
+aggregator = PubSubAggregator()
+
+bus_a = PubSub()
+bus_b = PubSub()
+
+# Add instances dynamically
+aggregator.add_pubsub(bus_a)
+aggregator.add_pubsub(bus_b)
+
+# Later, remove an instance
+aggregator.remove_pubsub(bus_a)
+```
+
+### One-Way Message Flow
+
+**Important**: `PubSubAggregator` implements one-way message flow. Messages flow FROM managed `PubSub` instances TO aggregator subscribers, but NOT the other way around.
+
+- ✅ Messages published to managed `PubSub` instances are forwarded to aggregator subscribers
+- ❌ Messages published to the aggregator are NOT forwarded to managed `PubSub` instances
+
+```python
+aggregator = PubSubAggregator(pubsubs=[bus_a, bus_b])
+
+# This message will be received by aggregator subscribers
+bus_a.publish("event.topic", {"data": "from_bus_a"})
+
+# This message will NOT be forwarded to bus_a or bus_b subscribers
+aggregator.publish("event.topic", {"data": "from_composite"})
+```
+
+### Cascade Operations
+
+Both `shutdown()` and `drain()` support optional cascade to managed instances:
+
+```python
+aggregator = PubSubAggregator(pubsubs=[bus_a, bus_b])
+
+# Shutdown aggregator only (managed instances remain active)
+aggregator.shutdown()
+
+# Shutdown aggregator AND all managed instances
+aggregator.shutdown(cascade=True)
+
+# Drain aggregator's internal queue only
+aggregator.drain()
+
+# Drain aggregator AND all managed instances
+aggregator.drain(cascade=True)
+```
+
+### Lifecycle Management
+
+Managed `PubSub` instances are created and managed externally. `PubSubAggregator` only subscribes to them and forwards their messages. When you call `shutdown(cascade=False)` (the default), managed instances remain active and can continue to be used independently.
+
+### Use Cases
+
+- **Multi-Package Event Aggregation**: Aggregate events from multiple packages/modules
+- **Central Monitoring**: Central logging or monitoring component receiving events from all sources
+- **Event Bus Federation**: Combine multiple independent event buses
+- **Plugin Systems**: Aggregate events from multiple plugin buses
+
+### Thread Safety
+
+All `PubSubAggregator` operations are thread-safe, using locks for synchronization. You can safely add/remove `PubSub` instances and subscribe/publish from multiple threads.
 
 ## Thread Safety
 
