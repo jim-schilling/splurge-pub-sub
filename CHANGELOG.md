@@ -1,5 +1,33 @@
 # Changelog
 
+### [2025.3.1] - 2025-11-07
+
+#### Added
+- **PubSubAggregator**: New class for aggregating messages from multiple PubSub instances
+  - `PubSubAggregator` class enables unified subscriber interface for multiple PubSub buses
+  - Constructor accepts optional `pubsubs` parameter to initialize with managed instances
+  - `add_pubsub()` and `remove_pubsub()` methods for dynamic management
+  - `shutdown(cascade=False)` with optional cascade to managed instances
+  - `drain(cascade=False)` with optional cascade to managed instances
+  - One-way message flow: messages from managed PubSub instances are forwarded to aggregator subscribers
+  - Full PubSub API delegation (subscribe, unsubscribe, publish, clear)
+  - Thread-safe operations using locks
+  - Context manager support for automatic cleanup
+  - Error handler and correlation ID support (passed to internal bus)
+- **Advanced Usage Examples**: Added `examples/api_advanced_usage.py` with comprehensive PubSubAggregator examples
+  - Basic composite/aggregator usage
+  - Dynamic add/remove operations
+  - Cascade shutdown and drain
+  - One-way message flow demonstration
+  - Real-world multi-package event aggregation scenario
+
+#### Updated
+- **Documentation**: Updated README.md, README-DETAILS.md, and API-REFERENCE.md with PubSubAggregator documentation
+  - Added PubSubAggregator to features list
+  - Added usage examples and patterns
+  - Documented API methods and parameters
+  - Explained one-way message flow and lifecycle management
+
 ### [2025.3.0] - 2025-11-07
 
 #### Added

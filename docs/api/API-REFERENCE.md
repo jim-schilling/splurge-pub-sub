@@ -694,6 +694,271 @@ bus.publish("user.created", {"name": "Alice"})
 bus.publish("user.updated", {"name": "Alice Smith"})
 ```
 
+### PubSubAggregator
+
+Composite class for aggregating messages from multiple `PubSub` instances.
+
+#### Constructor
+
+```python
+class PubSubAggregator:
+    def __init__(
+        self,
+        *,
+        pubsubs: Sequence[PubSub] | None = None,
+        error_handler: ErrorHandler | None = None,
+        correlation_id: str | None = None,
+    ) -> None:
+        """Initialize a new PubSubAggregator instance.
+
+        Creates an internal PubSub instance for managing subscribers and
+        optionally subscribes to the provided PubSub instances.
+
+        Args:
+            pubsubs: Optional list of PubSub instances to subscribe to.
+                   Defaults to empty list. Must be passed as a keyword argument.
+            error_handler: Optional custom error handler for subscriber callbacks.
+                          Passed to internal PubSub instance. Must be passed as a keyword argument.
+            correlation_id: Optional correlation ID. Passed to internal PubSub instance.
+                           Must be passed as a keyword argument.
+
+        Example:
+            >>> bus_b = PubSub()
+            >>> bus_c = PubSub()
+            >>> aggregator = PubSubAggregator(pubsubs=[bus_b, bus_c])
+            >>> aggregator = PubSubAggregator()  # Empty, add later with add_pubsub()
+        """
+```
+
+#### Methods
+
+##### add_pubsub
+
+```python
+def add_pubsub(self, pubsub: PubSub) -> None:
+    """Add a PubSub instance to the aggregator.
+
+    Subscribes to all topics ("*") on the provided PubSub instance and
+    forwards all messages to PubSubAggregator subscribers.
+
+    Args:
+        pubsub: PubSub instance to add
+
+    Raises:
+        SplurgePubSubValueError: If pubsub is None or not a PubSub instance
+        SplurgePubSubRuntimeError: If PubSubAggregator is shutdown
+        SplurgePubSubRuntimeError: If pubsub is already managed
+
+    Example:
+        >>> aggregator = PubSubAggregator()
+        >>> bus_b = PubSub()
+        >>> aggregator.add_pubsub(bus_b)
+    """
+```
+
+##### remove_pubsub
+
+```python
+def remove_pubsub(self, pubsub: PubSub) -> None:
+    """Remove a PubSub instance from the aggregator.
+
+    Unsubscribes from the provided PubSub instance and stops forwarding
+    its messages.
+
+    Args:
+        pubsub: PubSub instance to remove
+
+    Raises:
+        SplurgePubSubValueError: If pubsub is None
+        SplurgePubSubLookupError: If pubsub is not managed by this PubSubAggregator
+
+    Example:
+        >>> aggregator = PubSubAggregator(pubsubs=[bus_b])
+        >>> aggregator.remove_pubsub(bus_b)
+    """
+```
+
+##### subscribe
+
+```python
+def subscribe(
+    self,
+    topic: str,
+    callback: Callback,
+    *,
+    correlation_id: str | None = None,
+) -> SubscriberId:
+    """Subscribe to a topic on the aggregator bus.
+
+    Messages from any managed PubSub instance matching the topic will be
+    delivered to the callback.
+
+    Args:
+        topic: Topic identifier (uses dot notation, e.g., "user.created") or "*" for all topics
+        callback: Callable that accepts a Message and returns None
+        correlation_id: Optional filter. If None or '', uses instance correlation_id.
+                       If '*', matches any correlation_id. Otherwise must match pattern
+                       [a-zA-Z0-9][a-zA-Z0-9\.-_]*[a-zA-Z0-9] (2-64 chars) with no consecutive '.', '-', or '_'.
+                       Must be passed as a keyword argument.
+
+    Returns:
+        SubscriberId: Unique identifier for this subscription
+
+    Raises:
+        SplurgePubSubRuntimeError: If PubSubAggregator is shutdown
+
+    Example:
+        >>> aggregator = PubSubAggregator(pubsubs=[bus_b, bus_c])
+        >>> def handler(msg: Message) -> None:
+        ...     print(f"Received: {msg.topic}")
+        >>> sub_id = aggregator.subscribe("user.created", handler, correlation_id="*")
+    """
+```
+
+**Note**: When subscribing to receive messages from managed PubSub instances, use `correlation_id="*"` to receive all messages regardless of their correlation_id.
+
+##### publish
+
+```python
+def publish(
+    self,
+    topic: str,
+    data: MessageData | None = None,
+    metadata: Metadata | None = None,
+    *,
+    correlation_id: str | None = None,
+) -> None:
+    """Publish a message to the aggregator bus.
+
+    Note: This publishes to the internal bus only. It does NOT publish to
+    managed PubSub instances. This is a one-way message flow from managed
+    instances to aggregator subscribers.
+
+    Args:
+        topic: Topic identifier (uses dot notation, e.g., "user.created")
+        data: Message payload (dict[str, Any] with string keys only). Defaults to empty dict if None.
+        metadata: Optional metadata dictionary for message context. Defaults to empty dict if None.
+        correlation_id: Optional correlation ID override. If None or '', uses self._correlation_id.
+                       If '*', raises error. Otherwise must match pattern [a-zA-Z0-9][a-zA-Z0-9\.-_]*[a-zA-Z0-9]
+                       (2-64 chars) with no consecutive '.', '-', or '_' characters.
+                       Must be passed as a keyword argument.
+
+    Raises:
+        SplurgePubSubRuntimeError: If PubSubAggregator is shutdown
+
+    Example:
+        >>> aggregator = PubSubAggregator()
+        >>> aggregator.subscribe("topic", callback)
+        >>> aggregator.publish("topic", {"data": "test"})
+        >>> aggregator.drain()
+    """
+```
+
+##### drain
+
+```python
+def drain(self, timeout: int = 2000, *, cascade: bool = False) -> bool:
+    """Wait for the message queue to be drained (empty).
+
+    Blocks until all queued messages have been processed, or until the
+    timeout expires. Optionally cascades drain to managed PubSub instances.
+
+    Args:
+        timeout: Maximum time to wait in milliseconds. Defaults to 2000ms.
+        cascade: If True, also calls drain() on all managed PubSub instances.
+                Defaults to False. Must be passed as a keyword argument.
+
+    Returns:
+        True if queue was drained within timeout, False if timeout expired.
+        If cascade=True, returns True only if all drains succeeded.
+
+    Example:
+        >>> aggregator = PubSubAggregator(pubsubs=[bus_b, bus_c])
+        >>> aggregator.publish("topic", {"data": "test"})
+        >>> aggregator.drain()  # Wait for internal bus only
+        True
+        >>> aggregator.drain(cascade=True)  # Wait for internal and managed buses
+        True
+    """
+```
+
+##### shutdown
+
+```python
+def shutdown(self, *, cascade: bool = False) -> None:
+    """Shutdown the aggregator bus and prevent further operations.
+
+    Signals shutdown and optionally cascades shutdown to managed PubSub
+    instances. Subsequent calls to subscribe() or publish() will raise
+    SplurgePubSubRuntimeError.
+
+    Args:
+        cascade: If True, also calls shutdown() on all managed PubSub instances.
+                Defaults to False. Must be passed as a keyword argument.
+
+    Safe to call multiple times (idempotent).
+
+    Example:
+        >>> aggregator = PubSubAggregator(pubsubs=[bus_b, bus_c])
+        >>> aggregator.shutdown()  # Shutdown internal bus only
+        >>> aggregator = PubSubAggregator(pubsubs=[bus_b, bus_c])
+        >>> aggregator.shutdown(cascade=True)  # Shutdown internal and managed buses
+    """
+```
+
+#### Properties
+
+```python
+@property
+def is_shutdown(self) -> bool:
+    """Check if the PubSubAggregator instance has been shutdown.
+
+    Returns:
+        True if shutdown() has been called, False otherwise
+
+    Example:
+        >>> aggregator = PubSubAggregator()
+        >>> aggregator.is_shutdown
+        False
+        >>> aggregator.shutdown()
+        >>> aggregator.is_shutdown
+        True
+    """
+
+@property
+def managed_pubsubs(self) -> list[PubSub]:
+    """Get list of managed PubSub instances.
+
+    Returns:
+        A copy of the list of managed PubSub instances.
+
+    Example:
+        >>> aggregator = PubSubAggregator(pubsubs=[bus_b, bus_c])
+        >>> len(aggregator.managed_pubsubs)
+        2
+    """
+```
+
+#### Context Manager Support
+
+`PubSubAggregator` supports the context manager protocol:
+
+```python
+with PubSubAggregator(pubsubs=[bus_b, bus_c]) as aggregator:
+    aggregator.subscribe("topic", callback)
+    # Resources cleaned up automatically on exit
+```
+
+#### Message Flow
+
+**One-Way Flow**: `PubSubAggregator` implements one-way message flow:
+- ✅ Messages published to managed `PubSub` instances → forwarded to aggregator subscribers
+- ❌ Messages published to aggregator → NOT forwarded to managed `PubSub` instances
+
+#### Lifecycle Management
+
+Managed `PubSub` instances are created and managed externally. `PubSubAggregator` only subscribes to them and forwards their messages. When `shutdown(cascade=False)` is called (the default), managed instances remain active and can continue to be used independently.
+
 ## Type Aliases
 
 ### Callback

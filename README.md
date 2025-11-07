@@ -22,8 +22,9 @@ A lightweight, thread-safe publish-subscribe framework for Python applications. 
 - **Topic Filtering**: Wildcard pattern matching for selective message delivery
 - **Correlation IDs**: Cross-library event tracking and coordination
 - **Error Handling**: Custom error handlers for failed callbacks
+- **PubSubAggregator**: Aggregate messages from multiple PubSub instances
 - **Context Manager**: Automatic resource cleanup with `with` statement
-- **94% Coverage**: Comprehensive test coverage across all features
+- **95% Coverage**: Comprehensive test coverage across all features
 
 ## Quick Start
 
@@ -119,6 +120,36 @@ def handle_event(msg: Message) -> None:
 bus.publish("risky.operation", {})
 bus.drain()  # Wait for message delivery
 # Output: Error on topic 'risky.operation': Something went wrong!
+```
+
+### PubSubAggregator - Aggregating Multiple PubSub Instances
+
+```python
+from splurge_pub_sub import PubSubAggregator, PubSub, Message
+
+# Create PubSub instances from different packages/modules
+pack_b_bus = PubSub()
+pack_c_bus = PubSub()
+
+# Create composite to aggregate messages from both
+aggregator = PubSubAggregator(pubsubs=[pack_b_bus, pack_c_bus])
+
+# Subscribe once to receive events from any managed PubSub
+def unified_handler(msg: Message) -> None:
+    print(f"Received from {msg.topic}: {msg.data}")
+
+aggregator.subscribe("user.created", unified_handler, correlation_id="*")
+
+# Publish from different PubSub instances
+pack_b_bus.publish("user.created", {"id": 1, "source": "pack-b"})
+pack_c_bus.publish("user.created", {"id": 2, "source": "pack-c"})
+
+# Drain all buses to ensure messages are forwarded
+pack_b_bus.drain()
+pack_c_bus.drain()
+aggregator.drain()
+
+# Messages from both PubSub instances are received by composite subscribers
 ```
 
 ### Context Manager
