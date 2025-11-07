@@ -43,7 +43,8 @@ Splurge Pub-Sub is a simple, Pythonic framework for implementing the publish-sub
 ### Phase 1: Core Pub-Sub (Implemented)
 
 - **Subscribe**: Register callbacks for topics
-- **Publish**: Send messages to subscribers
+- **Publish**: Send messages to subscribers (asynchronous, non-blocking)
+- **Drain**: Wait for queued messages to be processed
 - **Unsubscribe**: Remove subscriptions
 - **Clear**: Remove all subscribers from topics
 - **Shutdown**: Gracefully shutdown the bus
@@ -172,13 +173,19 @@ subscriber_id = bus.subscribe("user.created", on_user_created)
 ### Publishing Messages
 
 ```python
-# Publish a message
+# Publish a message (non-blocking, returns immediately)
 bus.publish("user.created", {
     "id": 123,
     "name": "Alice",
     "email": "alice@example.com"
 })
+
+# Wait for messages to be delivered (optional)
+bus.drain()  # Waits up to 2000ms by default
+bus.drain(timeout=5000)  # Wait up to 5000ms
 ```
+
+**Note**: `publish()` returns immediately after enqueueing the message. Messages are dispatched asynchronously by a background worker thread. Use `drain()` if you need to wait for delivery.
 
 ### Unsubscribing
 
@@ -720,7 +727,8 @@ print(result)  # {"result": 8}
 All PubSub operations are thread-safe using an RLock:
 
 - `subscribe()` - Thread-safe subscription
-- `publish()` - Thread-safe message publishing
+- `publish()` - Thread-safe message publishing (non-blocking, enqueues to thread-safe queue)
+- `drain()` - Thread-safe waiting for queue to empty
 - `unsubscribe()` - Thread-safe subscription removal
 - `clear()` - Thread-safe subscriber clearing
 - `shutdown()` - Thread-safe shutdown
@@ -769,16 +777,18 @@ bus.publish("event.primary", data)  # Chains through secondary
 
 ### Callback Execution
 
-- Callbacks execute synchronously in subscription order
+- Callbacks execute asynchronously in subscription order (via background worker thread)
+- Publishers never block on subscriber execution
 - Lock is released before callbacks execute (prevents deadlocks)
 - If one callback raises an exception, others still execute
 - Exceptions passed to error_handler, not re-raised
+- Use `drain()` to wait for message delivery when needed
 
 ## Performance Considerations
 
 ### Message Publishing
 
-Publishing is O(n) where n is the number of subscribers for a topic:
+Publishing is O(1) for enqueueing (non-blocking), with O(n) dispatch where n is the number of subscribers:
 
 ```python
 bus = PubSub()
@@ -787,8 +797,11 @@ bus = PubSub()
 for i in range(1000):
     bus.subscribe("topic", lambda msg: None)
 
-# Publish calls all 1000 callbacks
-bus.publish("topic", data)  # ~O(1000) operations
+# Publish enqueues immediately (non-blocking)
+bus.publish("topic", data)  # Returns immediately
+
+# Background worker dispatches to all 1000 callbacks asynchronously
+bus.drain()  # Wait for delivery if needed
 ```
 
 ### Memory Usage

@@ -109,6 +109,7 @@ class TestCorrelationIdPublish:
 
         bus.subscribe("test.topic", callback)
         bus.publish("test.topic", {"key": "value"})
+        bus.drain()
 
         assert len(received) == 1
         assert received[0].correlation_id == "instance-id"
@@ -124,6 +125,7 @@ class TestCorrelationIdPublish:
         # Subscribe with wildcard to match any correlation_id
         bus.subscribe("test.topic", callback, correlation_id="*")
         bus.publish("test.topic", {"key": "value"}, correlation_id="custom-id")
+        bus.drain()
 
         assert len(received) == 1
         assert received[0].correlation_id == "custom-id"
@@ -148,6 +150,7 @@ class TestCorrelationIdPublish:
 
         bus.subscribe("test.topic", callback)
         bus.publish("test.topic", {}, correlation_id="")
+        bus.drain()
 
         assert received[0].correlation_id == "instance-id"
 
@@ -172,6 +175,7 @@ class TestCorrelationIdSubscribe:
         bus.subscribe("test.topic", callback)
         bus.publish("test.topic", {}, correlation_id="instance-id")
         bus.publish("test.topic", {}, correlation_id="other-id")
+        bus.drain()
 
         assert len(received) == 1
         assert received[0].correlation_id == "instance-id"
@@ -187,6 +191,7 @@ class TestCorrelationIdSubscribe:
         bus.subscribe("test.topic", callback, correlation_id="target-id")
         bus.publish("test.topic", {}, correlation_id="target-id")
         bus.publish("test.topic", {}, correlation_id="other-id")
+        bus.drain()
 
         assert len(received) == 1
         assert received[0].correlation_id == "target-id"
@@ -203,6 +208,7 @@ class TestCorrelationIdSubscribe:
         bus.publish("test.topic", {}, correlation_id="id-1")
         bus.publish("test.topic", {}, correlation_id="id-2")
         bus.publish("test.topic", {}, correlation_id="id-3")
+        bus.drain()
 
         assert len(received) == 3
 
@@ -217,6 +223,7 @@ class TestCorrelationIdSubscribe:
         bus.subscribe("test.topic", callback, correlation_id="")
         bus.publish("test.topic", {}, correlation_id="instance-id")
         bus.publish("test.topic", {}, correlation_id="other-id")
+        bus.drain()
 
         assert len(received) == 1
         assert received[0].correlation_id == "instance-id"
@@ -244,6 +251,7 @@ class TestCorrelationIdSubscribe:
         bus.publish("test.topic", {}, correlation_id="id-a")
         bus.publish("test.topic", {}, correlation_id="id-b")
         bus.publish("test.topic", {}, correlation_id="id-c")
+        bus.drain()
 
         assert len(received_a) == 1
         assert len(received_b) == 1
@@ -265,6 +273,7 @@ class TestCorrelationIdWildcardTopic:
         bus.publish("topic.a", {}, correlation_id="target-id")
         bus.publish("topic.b", {}, correlation_id="target-id")
         bus.publish("topic.c", {}, correlation_id="other-id")
+        bus.drain()
 
         assert len(received) == 2
         assert all(msg.correlation_id == "target-id" for msg in received)
@@ -281,6 +290,7 @@ class TestCorrelationIdWildcardTopic:
         bus.publish("topic.a", {}, correlation_id="id-1")
         bus.publish("topic.b", {}, correlation_id="id-2")
         bus.publish("topic.c", {}, correlation_id="id-3")
+        bus.drain()
 
         assert len(received) == 3
 
@@ -294,8 +304,10 @@ class TestCorrelationIdWildcardTopic:
 
         sub_id = bus.subscribe("*", callback)
         bus.publish("test.topic", {})
+        bus.drain()
         bus.unsubscribe("*", sub_id)
         bus.publish("test.topic", {})
+        bus.drain()
 
         assert len(received) == 1
 
@@ -309,8 +321,10 @@ class TestCorrelationIdWildcardTopic:
 
         bus.subscribe("*", callback)
         bus.publish("test.topic", {})
+        bus.drain()
         bus.clear("*")
         bus.publish("test.topic", {})
+        bus.drain()
 
         assert len(received) == 1
 
@@ -329,6 +343,7 @@ class TestCorrelationIdMatching:
         bus.subscribe("test.topic", callback, correlation_id="exact-id")
         bus.publish("test.topic", {}, correlation_id="exact-id")
         bus.publish("test.topic", {}, correlation_id="different-id")
+        bus.drain()
 
         assert len(received) == 1
         assert received[0].correlation_id == "exact-id"
@@ -345,6 +360,7 @@ class TestCorrelationIdMatching:
         bus.publish("test.topic", {}, correlation_id="id-1")
         bus.publish("test.topic", {}, correlation_id="id-2")
         bus.publish("test.topic", {}, correlation_id="id-3")
+        bus.drain()
 
         assert len(received) == 3
 
@@ -361,10 +377,12 @@ class TestCorrelationIdMatching:
         bus.publish("topic.a", {}, correlation_id="id-b")  # Topic matches, correlation_id doesn't
         bus.publish("topic.b", {}, correlation_id="id-a")  # Correlation_id matches, topic doesn't
         bus.publish("topic.b", {}, correlation_id="id-b")  # Neither matches
+        bus.drain()
 
         assert len(received) == 1
         assert received[0].correlation_id == "id-a"
         assert received[0].topic == "topic.a"
+
 
 class TestCorrelationIdValidation:
     """Tests for correlation_id validation utility."""

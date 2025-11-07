@@ -16,6 +16,7 @@ A lightweight, thread-safe publish-subscribe framework for Python applications. 
 - **Lightweight**: Zero external dependencies, minimal footprint
 - **Thread-Safe**: Full concurrency support with reentrant locks
 - **Type-Safe**: Complete type annotations with mypy strict mode compliance
+- **Async Publishing**: Non-blocking message dispatch via background worker thread
 - **Simple API**: Subscribe, publish, unsubscribe with intuitive methods
 - **Decorator Syntax**: `@bus.on("topic")` for simplified subscriptions
 - **Topic Filtering**: Wildcard pattern matching for selective message delivery
@@ -46,8 +47,9 @@ def handle_event(msg: Message) -> None:
 
 sub_id = bus.subscribe("user.created", handle_event)
 
-# Publish a message
+# Publish a message (non-blocking, returns immediately)
 bus.publish("user.created", {"id": 123, "name": "Alice"})
+bus.drain()  # Wait for message to be delivered (optional)
 # Output: Received: {'id': 123, 'name': 'Alice'}
 
 # Unsubscribe when done
@@ -62,6 +64,7 @@ def handle_user_updated(msg: Message) -> None:
     print(f"User updated: {msg.data}")
 
 bus.publish("user.updated", {"id": 123, "status": "active"})
+bus.drain()  # Wait for delivery if needed
 ```
 
 ### Topic Filtering
@@ -97,6 +100,7 @@ monitor_bus.subscribe("*", lambda m: print(f"[{m.correlation_id}] {m.topic}"),
 
 dsv_bus.publish("dsv.file.loaded", {"file": "data.csv"})
 tabular_bus.publish("tabular.table.created", {"rows": 100})
+monitor_bus.drain()  # Wait for messages to be delivered
 # Both messages received by monitor
 ```
 
@@ -112,7 +116,8 @@ bus = PubSub(error_handler=my_error_handler)
 def handle_event(msg: Message) -> None:
     raise ValueError("Something went wrong!")
 
-bus.publish("risky.operation", {})  # Error handler called
+bus.publish("risky.operation", {})
+bus.drain()  # Wait for message delivery
 # Output: Error on topic 'risky.operation': Something went wrong!
 ```
 
@@ -122,6 +127,7 @@ bus.publish("risky.operation", {})  # Error handler called
 with PubSub() as bus:
     bus.subscribe("topic", callback)
     bus.publish("topic", data)
+    bus.drain()  # Wait for delivery if needed
     # Cleanup happens automatically
 ```
 

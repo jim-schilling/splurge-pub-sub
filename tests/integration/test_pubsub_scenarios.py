@@ -6,7 +6,9 @@ Test real-world use cases and multi-component interactions.
 import threading
 from typing import Any
 
-from splurge_pub_sub import Message, PubSub
+import pytest
+
+from splurge_pub_sub import Message, PubSub, SplurgePubSubRuntimeError
 
 
 class TestIntegrationScenarios:
@@ -42,6 +44,7 @@ class TestIntegrationScenarios:
         # Publish user created event
         user_data = {"id": 123, "name": "Alice", "email": "alice@example.com"}
         bus.publish("user.created", user_data)
+        bus.drain()
 
         # Verify all subscribers received event
         assert len(logged_events) == 1
@@ -76,6 +79,7 @@ class TestIntegrationScenarios:
         bus.subscribe("audit.log.created", audit_handler)
 
         bus.publish("user.created", {"email": "user@example.com"})
+        bus.drain()
 
         # All cascading events should have been delivered
         assert event_sequence == ["user_created", "email_sent", "audit_logged"]
@@ -106,6 +110,8 @@ class TestIntegrationScenarios:
         for t in threads:
             t.join()
 
+        # Wait for all messages to be processed
+        bus.drain()
         # 3 threads × 10 publishes × 5 subscribers = 150 received
         assert received_count["count"] == 150
 
@@ -126,6 +132,7 @@ class TestIntegrationScenarios:
 
         # Publish single message
         bus.publish("topic", {"data": "test"})
+        bus.drain()
 
         # All should have received
         assert len(received) == 500
@@ -140,12 +147,14 @@ class TestIntegrationScenarios:
 
         bus.subscribe("topic", subscriber)
         bus.publish("topic", {"data": "test1"})
+        bus.drain()
         assert len(received) == 1
 
         bus.shutdown()
 
-        # After shutdown, messages shouldn't be delivered
-        bus.publish("topic", {"data": "test2"})
+        # After shutdown, publish should raise error
+        with pytest.raises(SplurgePubSubRuntimeError):
+            bus.publish("topic", {"data": "test2"})
         assert len(received) == 1
 
     def test_scenario_exception_isolation(self) -> None:
@@ -169,6 +178,7 @@ class TestIntegrationScenarios:
 
         # Publish should not raise despite failing subscriber
         bus.publish("topic", {"data": "test"})
+        bus.drain()
 
         # Good subscribers should have executed
         assert "subscriber1" in results
@@ -184,6 +194,7 @@ class TestIntegrationScenarios:
         with PubSub() as bus:
             bus.subscribe("topic", subscriber)
             bus.publish("topic", {"data": "test1"})
+            bus.drain()
             assert len(received) == 1
             # Bus is still active
 

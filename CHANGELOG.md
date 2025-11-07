@@ -1,5 +1,50 @@
 # Changelog
 
+### [2025.3.0] - 2025-11-07
+
+#### Added
+- **Async Queue-Based Publishing**: Refactored `publish()` to use asynchronous message dispatch
+  - Messages are now enqueued and dispatched by a background worker thread
+  - Publishers never block on subscriber execution, ensuring non-blocking workflow
+  - Background worker thread processes messages asynchronously
+  - Thread-safe queue infrastructure using `queue.Queue`
+- **Drain Method**: Added `drain(timeout: int = 2000)` method to wait for message queue to empty
+  - Blocks until all queued messages are processed or timeout expires
+  - Returns `True` if queue drained within timeout, `False` if timeout expired
+  - Useful for tests or when synchronous-like behavior is needed
+  - Timeout specified in milliseconds (default 2000ms)
+
+#### Changed
+- **Publish Behavior**: `publish()` now returns immediately after enqueueing (non-blocking)
+  - Messages are dispatched asynchronously by background worker thread
+  - Callbacks execute asynchronously in subscription order
+  - Use `drain()` when you need to wait for message delivery
+- **Shutdown Behavior**: `publish()` now raises `SplurgePubSubRuntimeError` after shutdown
+  - Previously allowed publishing after shutdown (no-op)
+  - Now explicitly prevents publishing after shutdown for consistency
+- **Worker Thread Lifecycle**: Background worker thread starts automatically on `PubSub` initialization
+  - Worker thread runs as daemon thread
+  - Gracefully stops during `shutdown()` with proper cleanup
+  - Handles exceptions in worker thread without crashing
+
+#### Updated
+- **Documentation**: Updated all documentation to reflect async behavior
+  - API reference documents async dispatch behavior
+  - README examples updated to show `drain()` usage
+  - Performance considerations updated for async model
+- **Tests**: Updated all tests to account for async behavior
+  - Added `drain()` calls where synchronous delivery verification is needed
+  - Updated shutdown tests to expect `SplurgePubSubRuntimeError` on publish after shutdown
+  - Added new tests for `drain()` functionality
+
+#### Breaking Changes
+- **Publish Behavior**: `publish()` no longer blocks on subscriber execution
+  - Code relying on synchronous callback execution will need `drain()` calls
+  - Tests checking immediate message delivery need `drain()` calls
+- **Shutdown Behavior**: `publish()` after `shutdown()` now raises `SplurgePubSubRuntimeError`
+  - Previously was a no-op, now explicitly raises error
+
+
 ### [2025.2.0] - 2025-11-06
 
 #### Changed

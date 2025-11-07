@@ -86,6 +86,7 @@ class TestCustomErrorHandler:
 
         bus.subscribe("topic", failing_callback)
         bus.publish("topic", {"data": "test"})
+        bus.drain()
 
         mock_handler.assert_called_once()
         args = mock_handler.call_args[0]
@@ -106,6 +107,7 @@ class TestCustomErrorHandler:
 
         bus.subscribe("user.created", failing_callback)
         bus.publish("user.created", {"id": 123})
+        bus.drain()
 
         assert len(received_calls) == 1
         assert isinstance(received_calls[0]["exception"], RuntimeError)
@@ -136,6 +138,7 @@ class TestErrorHandlerCalling:
 
         bus.subscribe("topic", failing_callback)
         bus.publish("topic", {})
+        bus.drain()
 
         mock_handler.assert_called_once()
 
@@ -149,6 +152,7 @@ class TestErrorHandlerCalling:
 
         bus.subscribe("topic", working_callback)
         bus.publish("topic", {})
+        bus.drain()
 
         mock_handler.assert_not_called()
 
@@ -166,6 +170,7 @@ class TestErrorHandlerCalling:
         bus.subscribe("topic", failing_callback_1)
         bus.subscribe("topic", failing_callback_2)
         bus.publish("topic", {})
+        bus.drain()
 
         # Should be called twice (once for each failing subscriber)
         assert mock_handler.call_count == 2
@@ -183,6 +188,7 @@ class TestErrorHandlerCalling:
         bus.publish("topic", {"id": 1})
         bus.publish("topic", {"id": 2})
         bus.publish("topic", {"id": 3})
+        bus.drain()
 
         # Should be called three times
         assert mock_handler.call_count == 3
@@ -207,6 +213,7 @@ class TestErrorHandlerExecution:
 
         bus.subscribe("topic", failing_callback)
         bus.publish("topic", {})
+        bus.drain()
 
         assert len(received_exceptions) == 1
         assert received_exceptions[0] is expected_error
@@ -229,6 +236,7 @@ class TestErrorHandlerExecution:
 
         bus.publish("user.created", {})
         bus.publish("order.paid", {})
+        bus.drain()
 
         assert received_topics == ["user.created", "order.paid"]
 
@@ -251,6 +259,7 @@ class TestErrorHandlerExecution:
         bus.subscribe("topic", failing_2)
 
         bus.publish("topic", {})
+        bus.drain()
 
         assert call_order == ["error 1", "error 2"]
 
@@ -274,6 +283,7 @@ class TestErrorHandlerIsolation:
         bus.subscribe("topic", failing_callback)
         bus.subscribe("topic", working_callback)
         bus.publish("topic", {})
+        bus.drain()
 
         # Both callbacks should execute
         assert "failing" in callback_calls
@@ -292,10 +302,14 @@ class TestErrorHandlerIsolation:
 
         bus.subscribe("topic", failing_callback)
 
-        # This should raise because error handler itself fails
-        # (error handler exceptions are not caught)
-        with pytest.raises(RuntimeError):
-            bus.publish("topic", {})
+        # With async dispatch, publish() returns immediately
+        # Error handler exceptions are caught and logged in worker thread
+        # publish() itself doesn't raise
+        bus.publish("topic", {})
+        bus.drain()
+
+        # Error handler exception is logged but doesn't affect publish()
+        # The test verifies publish() doesn't raise
 
     def test_multiple_errors_all_handled(self) -> None:
         """Test that multiple subscriber errors are all handled."""
@@ -320,6 +334,7 @@ class TestErrorHandlerIsolation:
         bus.subscribe("topic", failing_3)
 
         bus.publish("topic", {})
+        bus.drain()
 
         assert handled_exceptions == ["ValueError", "TypeError", "RuntimeError"]
 
@@ -349,6 +364,7 @@ class TestErrorHandlerWithPublish:
         bus.subscribe("topic", working)
 
         bus.publish("topic", {})
+        bus.drain()
 
         # All callbacks executed
         assert callback_calls == ["failing", "working", "working"]
@@ -369,6 +385,7 @@ class TestErrorHandlerWithPublish:
 
         bus.subscribe("user.created", failing)
         bus.publish("user.created", {"id": 123, "name": "Alice"})
+        bus.drain()
 
         assert len(received_info) == 1
         assert "id" in received_info[0]["exception"]
@@ -390,6 +407,7 @@ class TestErrorHandlerWithPublish:
 
         bus.publish("order.created", {"order_id": 42})
         bus.publish("order.paid", {"order_id": 42})  # Different topic, no subscribers
+        bus.drain()
 
         # Should only handle error from first publish
         assert len(handler_calls) == 1
@@ -413,6 +431,7 @@ class TestErrorHandlerIntegration:
 
             bus.subscribe("topic", failing)
             bus.publish("topic", {})
+            bus.drain()
 
         # Handler should have been called before shutdown
         assert "topic" in handler_calls
@@ -443,6 +462,7 @@ class TestErrorHandlerIntegration:
 
         bus.subscribe("topic", failing)
         bus.publish("topic", {})
+        bus.drain()
 
         assert len(received) == 1
         assert received[0][0] == exception_type.__name__

@@ -205,11 +205,7 @@ class TestPubSubMessageDelivery:
 
         pubsub.subscribe(topic=topic, callback=callback)
         pubsub.publish(topic=topic, data=data)
-
-        # Give a small amount of time for async delivery
-        import time
-
-        time.sleep(0.01)
+        pubsub.drain()
 
         assert len(received_messages) == 1
         assert received_messages[0].topic == topic
@@ -242,10 +238,7 @@ class TestPubSubMessageDelivery:
 
         # Publish to topic2
         pubsub.publish(topic=topic2, data=data)
-
-        import time
-
-        time.sleep(0.01)
+        pubsub.drain()
 
         # Should not receive message for different topic
         assert len(received_messages) == 0
@@ -272,10 +265,7 @@ class TestPubSubMessageDelivery:
         pubsub.unsubscribe(topic=topic1, subscriber_id=subscriber_id)
 
         pubsub.publish(topic=topic1, data=data)
-
-        import time
-
-        time.sleep(0.01)
+        pubsub.drain()
 
         assert len(received_messages) == 0
 
@@ -297,10 +287,7 @@ class TestPubSubWildcardMatching:
 
         # Publish to same topic
         pubsub.publish(topic=topic, data={})
-
-        import time
-
-        time.sleep(0.01)
+        pubsub.drain()
 
         # Should receive the message
         assert len(received_messages) == 1
@@ -337,9 +324,8 @@ class TestPubSubThreadSafety:
         for i in range(num_publishers):
             pubsub.publish(topic=topic, data={"message_id": i})
 
-        import time
-
-        time.sleep(0.05)
+        # Wait for all messages to be processed
+        pubsub.drain()
 
         # Should have received all messages on all subscribers
         expected_count = num_publishers * num_subscribers

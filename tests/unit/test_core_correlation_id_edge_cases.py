@@ -49,6 +49,7 @@ class TestCorrelationIdBoundaryConditions:
 
         bus.subscribe("test.topic", callback, correlation_id="xy")
         bus.publish("test.topic", {}, correlation_id="xy")
+        bus.drain()
 
         assert len(received) == 1
         assert received[0].correlation_id == "xy"
@@ -64,6 +65,7 @@ class TestCorrelationIdBoundaryConditions:
         long_id = "a" * 64
         bus.subscribe("test.topic", callback, correlation_id=long_id)
         bus.publish("test.topic", {}, correlation_id=long_id)
+        bus.drain()
 
         assert len(received) == 1
         assert received[0].correlation_id == long_id
@@ -139,6 +141,7 @@ class TestCorrelationIdThreadSafety:
         for t in threads:
             t.join()
 
+        bus.drain()
         # Should have received some messages (exact count depends on timing)
         assert received_count["count"] > 0
 
@@ -174,6 +177,7 @@ class TestCorrelationIdThreadSafety:
             executor.submit(publish_many)
             executor.submit(unsubscribe_many)
 
+        bus.drain()
         # Should have received some messages
         assert len(received) > 0
 
@@ -246,6 +250,9 @@ class TestCorrelationIdThreadSafety:
         for t in threads:
             t.join()
 
+        # Wait for all async messages to be processed
+        bus.drain()
+
         # Should receive all messages (5 threads * 10 publishes = 50)
         assert received_count["count"] == num_threads * 10
 
@@ -265,18 +272,18 @@ class TestCorrelationIdShutdownEdgeCases:
             bus.subscribe("test.topic", callback, correlation_id="test-id")
 
     def test_publish_with_correlation_id_after_shutdown(self) -> None:
-        """Test that publishing with correlation_id after shutdown (may or may not raise error).
+        """Test that publishing with correlation_id after shutdown raises error.
 
-        Note: publish() doesn't currently check shutdown state, only subscribe() does.
-        This test documents current behavior.
+        After refactoring to async, publish() now checks shutdown state
+        and raises SplurgePubSubRuntimeError.
         """
         bus = PubSub()
         bus.shutdown()
 
-        # Currently publish() doesn't check shutdown state
-        # This is acceptable behavior - publish() may still work after shutdown
-        # The test verifies no exception is raised
-        bus.publish("test.topic", {}, correlation_id="test-id")
+        # After refactoring to async, publish() checks shutdown state
+        # and raises SplurgePubSubRuntimeError
+        with pytest.raises(SplurgePubSubRuntimeError):
+            bus.publish("test.topic", {}, correlation_id="test-id")
 
     def test_correlation_id_property_accessible_after_shutdown(self) -> None:
         """Test that correlation_id property is still accessible after shutdown."""
@@ -332,6 +339,7 @@ class TestCorrelationIdErrorHandling:
 
         bus.subscribe("test.topic", failing_callback, correlation_id="test-id")
         bus.publish("test.topic", {}, correlation_id="test-id")
+        bus.drain()
 
         assert error_info["topic"] == "test.topic"
         assert isinstance(error_info["exc"], ValueError)
@@ -360,6 +368,7 @@ class TestCorrelationIdErrorHandling:
 
         bus.publish("test.topic", {}, correlation_id="id-a")
         bus.publish("test.topic", {}, correlation_id="id-b")
+        bus.drain()
 
         # Callback A should have received its message
         assert len(received_a) == 1
@@ -394,6 +403,7 @@ class TestCorrelationIdErrorHandling:
         for i in range(5):
             bus.publish("test.topic", {}, correlation_id=f"id-{i}")
         bus.publish("test.topic", {}, correlation_id="id-fail")
+        bus.drain()
 
         # All OK callbacks should have received messages
         assert len(received_ok) == 5
@@ -438,6 +448,7 @@ class TestCorrelationIdLargeScale:
         for i in range(100):
             bus.publish("test.topic", {}, correlation_id=f"id-{i}")
 
+        bus.drain()
         # Verify all received their messages
         for i in range(100):
             assert received_counts[i] == 1
