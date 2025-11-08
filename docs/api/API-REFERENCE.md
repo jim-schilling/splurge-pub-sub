@@ -959,6 +959,148 @@ with PubSubAggregator(pubsubs=[bus_b, bus_c]) as aggregator:
 
 Managed `PubSub` instances are created and managed externally. `PubSubAggregator` only subscribes to them and forwards their messages. When `shutdown(cascade=False)` is called (the default), managed instances remain active and can continue to be used independently.
 
+### PubSubSolo
+
+Scoped singleton wrapper for `PubSub` instances. Provides thread-safe singleton instances per scope name, enabling multiple packages/libraries to each have their own singleton that can be aggregated via `PubSubAggregator`.
+
+#### Class Methods
+
+##### get_instance
+
+```python
+@classmethod
+def get_instance(
+    *,
+    scope: str,
+    error_handler: ErrorHandler | None = None,
+    correlation_id: str | None = None,
+) -> PubSub:
+    """Get or create the singleton PubSub instance for a scope.
+
+    Args:
+        scope: Scope name for the singleton (e.g., package name, module name).
+              Each scope gets its own singleton instance. Must be passed as a keyword argument.
+        error_handler: Optional error handler (only applied on first initialization).
+                      Must be passed as a keyword argument.
+        correlation_id: Optional correlation ID (only applied on first initialization).
+                       Must be passed as a keyword argument.
+
+    Returns:
+        The singleton PubSub instance for the specified scope
+
+    Example:
+        >>> # Package A
+        >>> bus_a = PubSubSolo.get_instance(scope="package_a")
+
+        >>> # Package B
+        >>> bus_b = PubSubSolo.get_instance(scope="package_b")
+
+        >>> # bus_a and bus_b are different instances
+        >>> bus_a is not bus_b  # True
+
+        >>> # But same scope returns same instance
+        >>> bus_a2 = PubSubSolo.get_instance(scope="package_a")
+        >>> bus_a is bus_a2  # True
+    """
+```
+
+**Important**: Configuration parameters (`error_handler`, `correlation_id`) are only applied on the first call for a scope. Subsequent calls with different parameters are ignored.
+
+##### is_initialized
+
+```python
+@classmethod
+def is_initialized(scope: str) -> bool:
+    """Check if the singleton has been initialized for a scope.
+
+    Args:
+        scope: Scope name to check
+
+    Returns:
+        True if singleton has been created for the scope, False otherwise
+    """
+```
+
+##### get_all_scopes
+
+```python
+@classmethod
+def get_all_scopes() -> list[str]:
+    """Get list of all initialized scope names.
+
+    Returns:
+        List of scope names that have been initialized
+
+    Example:
+        >>> PubSubSolo.get_instance(scope="package_a")
+        >>> PubSubSolo.get_instance(scope="package_b")
+        >>> PubSubSolo.get_all_scopes()
+        ['package_a', 'package_b']
+    """
+```
+
+#### Convenience Methods
+
+`PubSubSolo` provides convenience class methods that delegate to the singleton instance for a specific scope. All methods require a `scope` parameter:
+
+- `subscribe(topic, callback, *, scope, correlation_id=None)` - Subscribe to a topic
+- `publish(topic, data=None, metadata=None, *, scope, correlation_id=None)` - Publish a message
+- `unsubscribe(topic, subscriber_id, *, scope)` - Unsubscribe from a topic
+- `clear(topic=None, *, scope)` - Clear subscribers
+- `drain(timeout=2000, *, scope)` - Drain message queue
+- `shutdown(*, scope)` - Shutdown the singleton instance
+- `on(topic, *, scope)` - Create a decorator for subscribing
+
+#### Property Access Methods
+
+Since properties require an instance, `PubSubSolo` provides class methods to access properties:
+
+- `get_correlation_id(*, scope)` - Get correlation ID
+- `get_correlation_ids(*, scope)` - Get all correlation IDs
+- `get_is_shutdown(*, scope)` - Check if shutdown
+- `get_subscribers(*, scope)` - Get subscribers
+- `get_wildcard_subscribers(*, scope)` - Get wildcard subscribers
+
+#### Usage with PubSubAggregator
+
+`PubSubSolo` is designed to work seamlessly with `PubSubAggregator`:
+
+```python
+from splurge_pub_sub import PubSubSolo, PubSubAggregator
+
+# Each package gets its own singleton
+bus_a = PubSubSolo.get_instance(scope="package_a")
+bus_b = PubSubSolo.get_instance(scope="package_b")
+bus_c = PubSubSolo.get_instance(scope="package_c")
+
+# Aggregate them - each is a different instance!
+aggregator = PubSubAggregator(pubsubs=[bus_a, bus_b, bus_c])
+
+# Subscribe to events from all packages
+@aggregator.on("*")
+def handle_all_events(msg: Message) -> None:
+    print(f"Received from {msg.topic}: {msg.data}")
+
+# Events from both packages will be received
+bus_a.publish("package_a.event", {"id": 1})
+bus_b.publish("package_b.event", {"id": 2})
+bus_c.publish("package_c.event", {"id": 3})
+aggregator.drain()
+```
+
+#### Thread Safety
+
+Instance creation is thread-safe using per-scope locks with double-check locking pattern. Multiple threads can safely call `get_instance()` with the same scope and will receive the same instance.
+
+#### Direct Instantiation
+
+`PubSubSolo` cannot be instantiated directly. Attempting to do so will raise `RuntimeError`:
+
+```python
+>>> PubSubSolo()  # Raises RuntimeError
+RuntimeError: PubSubSolo cannot be instantiated directly. Use PubSubSolo.get_instance(scope='...') instead.
+```
+
 ## Type Aliases
 
 ### Callback
