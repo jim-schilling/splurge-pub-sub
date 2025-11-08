@@ -23,6 +23,7 @@ A lightweight, thread-safe publish-subscribe framework for Python applications. 
 - **Correlation IDs**: Cross-library event tracking and coordination
 - **Error Handling**: Custom error handlers for failed callbacks
 - **PubSubAggregator**: Aggregate messages from multiple PubSub instances
+- **PubSubSolo**: Scoped singleton PubSub instances for multi-package scenarios
 - **Context Manager**: Automatic resource cleanup with `with` statement
 - **95% Coverage**: Comprehensive test coverage across all features
 
@@ -150,6 +151,29 @@ pack_c_bus.drain()
 aggregator.drain()
 
 # Messages from both PubSub instances are received by composite subscribers
+```
+
+### PubSubSolo - Scoped Singleton for Multi-Package Scenarios
+
+```python
+from splurge_pub_sub import PubSubSolo, PubSubAggregator
+
+# Each package gets its own singleton instance
+bus_a = PubSubSolo.get_instance(scope="package_a")
+bus_b = PubSubSolo.get_instance(scope="package_b")
+
+# Aggregate multiple package singletons
+aggregator = PubSubAggregator(pubsubs=[bus_a, bus_b])
+
+# Subscribe to events from all packages
+@aggregator.on("*")
+def handle_all_events(msg: Message) -> None:
+    print(f"Received: {msg.topic} - {msg.data}")
+
+# Publish from different packages
+bus_a.publish("package_a.event", {"id": 1})
+bus_b.publish("package_b.event", {"id": 2})
+aggregator.drain()
 ```
 
 ### Context Manager

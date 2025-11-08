@@ -8,7 +8,13 @@ from typing import Any
 
 import pytest
 
-from splurge_pub_sub import Message, PubSub, SplurgePubSubRuntimeError
+from splurge_pub_sub import (
+    Message,
+    PubSub,
+    PubSubAggregator,
+    PubSubSolo,
+    SplurgePubSubRuntimeError,
+)
 
 
 class TestIntegrationScenarios:
@@ -201,3 +207,99 @@ class TestIntegrationScenarios:
         # After context exit, should not receive
         # (would need to create another instance to verify)
         assert len(received) == 1
+
+    def test_scenario_multiple_packages_with_pubsubsolo(self) -> None:
+        """Test realistic scenario with multiple packages using PubSubSolo."""
+        # Reset all instances for clean test state
+        for scope in PubSubSolo.get_all_scopes():
+            PubSubSolo.shutdown(scope=scope)
+
+        # Simulate package_a
+        bus_a = PubSubSolo.get_instance(scope="package_a")
+        events_a: list[Message] = []
+
+        @bus_a.on("package_a.event")
+        def handle_package_a_event(msg: Message) -> None:
+            events_a.append(msg)
+
+        # Simulate package_b
+        bus_b = PubSubSolo.get_instance(scope="package_b")
+        events_b: list[Message] = []
+
+        @bus_b.on("package_b.event")
+        def handle_package_b_event(msg: Message) -> None:
+            events_b.append(msg)
+
+        # Simulate package_c
+        bus_c = PubSubSolo.get_instance(scope="package_c")
+        events_c: list[Message] = []
+
+        @bus_c.on("package_c.event")
+        def handle_package_c_event(msg: Message) -> None:
+            events_c.append(msg)
+
+        # Verify each package has its own singleton
+        bus_a2 = PubSubSolo.get_instance(scope="package_a")
+        assert bus_a is bus_a2
+
+        # Publish events from each package
+        bus_a.publish("package_a.event", {"data": "from_a"})
+        bus_b.publish("package_b.event", {"data": "from_b"})
+        bus_c.publish("package_c.event", {"data": "from_c"})
+
+        # Drain all buses
+        bus_a.drain()
+        bus_b.drain()
+        bus_c.drain()
+
+        # Each package should receive its own events
+        assert len(events_a) == 1
+        assert len(events_b) == 1
+        assert len(events_c) == 1
+
+    def test_scenario_aggregate_pubsubsolo_instances(self) -> None:
+        """Test aggregating PubSubSolo instances from different scopes."""
+        # Reset all instances for clean test state
+        for scope in PubSubSolo.get_all_scopes():
+            PubSubSolo.shutdown(scope=scope)
+
+        # Create singleton instances for different packages
+        dsv_bus = PubSubSolo.get_instance(scope="splurge_dsv")
+        tabular_bus = PubSubSolo.get_instance(scope="splurge_tabular")
+        typer_bus = PubSubSolo.get_instance(scope="splurge_typer")
+
+        # Create central monitoring aggregator
+        monitoring_aggregator = PubSubAggregator(pubsubs=[dsv_bus, tabular_bus, typer_bus])
+
+        # Central event logger
+        all_events: list[dict] = []
+
+        def log_event(msg: Message) -> None:
+            """Central logging for all events."""
+            event_info = {
+                "topic": msg.topic,
+                "data": msg.data,
+                "correlation_id": msg.correlation_id,
+            }
+            all_events.append(event_info)
+
+        # Subscribe to all events
+        monitoring_aggregator.subscribe("*", log_event, correlation_id="*")
+
+        # Simulate events from different packages
+        dsv_bus.publish("dsv.file.loaded", {"file": "data.csv"})
+        tabular_bus.publish("tabular.table.created", {"rows": 100})
+        typer_bus.publish("typer.command.executed", {"command": "process"})
+
+        # Drain all buses
+        dsv_bus.drain()
+        tabular_bus.drain()
+        typer_bus.drain()
+        monitoring_aggregator.drain()
+
+        # Verify all events were aggregated
+        assert len(all_events) == 3
+        topics = [event["topic"] for event in all_events]
+        assert "dsv.file.loaded" in topics
+        assert "tabular.table.created" in topics
+        assert "typer.command.executed" in topics

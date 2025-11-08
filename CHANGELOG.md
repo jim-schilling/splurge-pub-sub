@@ -1,5 +1,39 @@
 # Changelog
 
+### [2025.3.2] - 2025-11-08
+
+#### Added
+- **PubSubSolo**: New scoped singleton wrapper for PubSub instances
+  - `PubSubSolo` class provides thread-safe singleton instances per scope name
+  - `get_instance(scope: str, ...)` method with mandatory scope parameter (no default)
+  - Each scope gets its own singleton instance, enabling multiple packages to have their own singletons
+  - Works seamlessly with `PubSubAggregator` - different scopes can be aggregated together
+  - Configuration parameters (`error_handler`, `correlation_id`) only applied on first initialization
+  - Utility methods for monitoring (`is_initialized`, `get_all_scopes`)
+  - Full API delegation via convenience class methods (subscribe, publish, unsubscribe, clear, drain, shutdown, on)
+  - Property access methods (get_correlation_id, get_correlation_ids, get_is_shutdown, get_subscribers, get_wildcard_subscribers)
+  - Thread-safe per-scope singleton creation using double-check locking pattern
+  - Prevents direct instantiation (raises RuntimeError)
+- **Examples**: Added `examples/api_solo_usage.py` with comprehensive PubSubSolo examples
+  - Basic singleton usage
+  - Multiple packages with their own singletons
+  - Aggregation with PubSubAggregator
+  - Convenience methods usage
+  - Real-world multi-package scenario
+- **Tests**: Added comprehensive test coverage for PubSubSolo
+  - Unit tests in `test_core_pubsub_solo_basic.py` covering all functionality
+  - Integration tests in `test_pubsub_scenarios.py` for multi-package scenarios
+  - Thread-safety tests for concurrent instance creation
+  - PubSubAggregator integration tests
+
+#### Updated
+- **Documentation**: Updated README.md, README-DETAILS.md, and API-REFERENCE.md with PubSubSolo documentation
+  - Added PubSubSolo to features list
+  - Added usage examples and patterns
+  - Documented API methods and parameters
+  - Explained scoped singleton pattern and use cases
+  - Documented integration with PubSubAggregator
+
 ### [2025.3.1] - 2025-11-07
 
 #### Added

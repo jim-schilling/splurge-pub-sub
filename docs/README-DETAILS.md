@@ -825,6 +825,133 @@ Managed `PubSub` instances are created and managed externally. `PubSubAggregator
 
 All `PubSubAggregator` operations are thread-safe, using locks for synchronization. You can safely add/remove `PubSub` instances and subscribe/publish from multiple threads.
 
+## PubSubSolo - Scoped Singleton PubSub Instances
+
+`PubSubSolo` provides scoped singleton instances of `PubSub`, where each scope (e.g., package/library name) gets its own singleton instance. This enables multiple packages/libraries to each have their own singleton that can be aggregated via `PubSubAggregator`.
+
+### Why PubSubSolo?
+
+When multiple packages need their own singleton `PubSub` instance, a true singleton (one instance per process) won't work because all packages would share the same instance. `PubSubSolo` solves this by providing **scoped singletons** - one singleton per scope name.
+
+### Basic Usage
+
+```python
+from splurge_pub_sub import PubSubSolo
+
+# Each package gets its own singleton instance
+bus_a = PubSubSolo.get_instance(scope="package_a")
+bus_b = PubSubSolo.get_instance(scope="package_b")
+
+# Same scope returns same instance
+bus_a2 = PubSubSolo.get_instance(scope="package_a")
+assert bus_a is bus_a2  # True
+
+# Different scopes return different instances
+assert bus_a is not bus_b  # True
+```
+
+### Usage with PubSubAggregator
+
+`PubSubSolo` is designed to work seamlessly with `PubSubAggregator`:
+
+```python
+from splurge_pub_sub import PubSubSolo, PubSubAggregator
+
+# Each package gets its own singleton
+dsv_bus = PubSubSolo.get_instance(scope="splurge_dsv")
+tabular_bus = PubSubSolo.get_instance(scope="splurge_tabular")
+typer_bus = PubSubSolo.get_instance(scope="splurge_typer")
+
+# Aggregate them - each is a different instance!
+monitoring_aggregator = PubSubAggregator(pubsubs=[dsv_bus, tabular_bus, typer_bus])
+
+# Subscribe to all events
+@monitoring_aggregator.on("*")
+def log_all_events(msg: Message) -> None:
+    print(f"[{msg.topic}] {msg.data}")
+
+# Publish from different packages
+dsv_bus.publish("dsv.file.loaded", {"file": "data.csv"})
+tabular_bus.publish("tabular.table.created", {"rows": 100})
+typer_bus.publish("typer.command.executed", {"command": "process"})
+
+# Drain all buses
+dsv_bus.drain()
+tabular_bus.drain()
+typer_bus.drain()
+monitoring_aggregator.drain()
+```
+
+### Configuration
+
+Configuration parameters (`error_handler`, `correlation_id`) are only applied on the first call for a scope:
+
+```python
+# First call - configuration applied
+bus = PubSubSolo.get_instance(
+    scope="my_package",
+    error_handler=custom_handler,
+    correlation_id="my-id"
+)
+
+# Second call with different config - ignored, returns same instance
+bus2 = PubSubSolo.get_instance(
+    scope="my_package",
+    error_handler=different_handler,  # Ignored
+    correlation_id="different-id"  # Ignored
+)
+
+assert bus is bus2  # Same instance
+assert bus.correlation_id == "my-id"  # Original config kept
+```
+
+### Convenience Methods
+
+`PubSubSolo` provides convenience class methods that delegate to the singleton instance:
+
+```python
+# Using convenience methods
+PubSubSolo.subscribe("topic", callback, scope="my_package")
+PubSubSolo.publish("topic", {"data": "test"}, scope="my_package")
+
+# Or get instance and use directly
+bus = PubSubSolo.get_instance(scope="my_package")
+bus.subscribe("topic", callback)
+bus.publish("topic", {"data": "test"})
+```
+
+### Utility Methods
+
+`PubSubSolo` provides utility methods for monitoring and management:
+
+```python
+# Check if a scope is initialized
+if PubSubSolo.is_initialized("my_scope"):
+    print("Scope is initialized")
+
+# Get all initialized scopes
+scopes = PubSubSolo.get_all_scopes()
+print(f"Active scopes: {scopes}")
+
+# Shutdown a specific scope
+PubSubSolo.shutdown(scope="my_scope")
+
+# Shutdown all scopes
+for scope in PubSubSolo.get_all_scopes():
+    PubSubSolo.shutdown(scope=scope)
+```
+
+### Thread Safety
+
+Instance creation is thread-safe using per-scope locks with double-check locking pattern. Multiple threads can safely call `get_instance()` with the same scope and will receive the same instance.
+
+### Use Cases
+
+- **Multi-Package Applications**: Each package/library has its own singleton instance
+- **Plugin Systems**: Each plugin gets its own singleton event bus
+- **Microservices**: Each service component has its own singleton
+- **Testing**: Easy to reset singleton state between tests
+
 ## Thread Safety
 
 ### Thread-Safe Operations
